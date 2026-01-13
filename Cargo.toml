@@ -1,3 +1,6 @@
 [workspace]
 resolver = "3"
 members = ["cli","core"]
+
+[patch.crates-io]
+fqdn = { git = "https://github.com/Orange-OpenSource/fqdn.git", rev = "a473eff" } # TODO: yanked version

@@ -4,3 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+anyhow = "1.0.100"
+deno_core = "0.378.0"
+deno_resolver = { version = "0.57.0", features = ["deno_ast", "graph", "sync"] }
+deno_runtime = { version = "0.234.0", features = ["deno_ast", "hmr", "transpile"] }
+node_resolver = { version = "0.64.0", features = ["graph", "sync"] }
+sys_traits = { version = "0.1.17", features = ["real"] }
+tokio = { version = "1.49.0", features = ["full"] }
