@@ -1,0 +1,27 @@
+{
+  "name": "denali-js",
+  "version": "1.0.0",
+  "main": "index.js",
+  "napi": {
+    "binaryName": "denali-js",
+    "targets": [
+      "x86_64-pc-windows-msvc",
+      "x86_64-apple-darwin",
+      "x86_64-unknown-linux-gnu",
+      "aarch64-apple-darwin"
+    ]
+  },
+  "engines": {
+    "node": ">= 12.22.0 < 13 || >= 14.17.0 < 15 || >= 15.12.0 < 16 || >= 16.0.0"
+  },
+  "scripts": {
+    "artifacts": "napi artifacts",
+    "build": "napi build --output-dir dist --platform --release",
+    "build:debug": "napi build --output-dir dist --platform",
+    "version": "napi version"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^3.5.1",
+    "typescript": "^5.9.3"
+  }
+}
