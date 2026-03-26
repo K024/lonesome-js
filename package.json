@@ -1,7 +1,14 @@
 {
   "name": "denali-js",
   "version": "1.0.0",
-  "main": "index.js",
+  "type": "commonjs",
+  "main": "dist/index.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
   "napi": {
     "binaryName": "denali-js",
     "targets": [
@@ -22,6 +29,8 @@
   },
   "devDependencies": {
     "@napi-rs/cli": "^3.5.1",
+    "@types/node": "^25.5.0",
+    "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   }
 }
