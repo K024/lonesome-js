@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use pingora::upstreams::peer::HttpPeer;
 
 use crate::config::RouteConfig;
@@ -13,7 +11,7 @@ pub struct Route {
   pub id: String,
   pub priority: i32,
   matcher: Matcher,
-  middlewares: Vec<Arc<dyn Middleware>>,
+  middlewares: Vec<Box<dyn Middleware>>,
   upstream_pool: UpstreamPool,
 }
 
@@ -48,7 +46,7 @@ impl Route {
     self.matcher.matches(session, proxy_ctx)
   }
 
-  pub fn middlewares(&self) -> std::slice::Iter<'_, Arc<dyn Middleware>> {
+  pub fn middlewares(&self) -> std::slice::Iter<'_, Box<dyn Middleware>> {
     self.middlewares.iter()
   }
 

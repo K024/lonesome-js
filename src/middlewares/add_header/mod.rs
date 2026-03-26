@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use async_trait::async_trait;
 use cel::{Program, Value};
 use pingora::proxy::Session;
@@ -25,8 +23,8 @@ impl AddHeaderConfig {
 }
 
 pub struct AddHeaderMiddleware {
-  name: Arc<str>,
-  value: Arc<str>,
+  name: String,
+  value: String,
   cel_program: Option<Program>,
 }
 
@@ -44,8 +42,8 @@ impl AddHeaderMiddleware {
     };
 
     Ok(Self {
-      name: Arc::from(cfg.name),
-      value: Arc::from(cfg.value),
+      name: cfg.name,
+      value: cfg.value,
       cel_program,
     })
   }

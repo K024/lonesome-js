@@ -28,7 +28,7 @@ pub enum UpstreamEndpoint {
 
 pub struct UpstreamPool {
   endpoints: Vec<UpstreamEndpoint>,
-  lb: Option<std::sync::Arc<dyn DynLoadBalancer>>,
+  lb: Option<Box<dyn DynLoadBalancer>>,
   lb_cfg: LoadBalancerConfig,
   hash_key_program: Option<Program>,
 }

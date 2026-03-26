@@ -1,7 +1,6 @@
-use std::sync::Arc;
-
 use async_trait::async_trait;
 use cel::{Program, Value};
+use pingora::http::RequestHeader;
 use pingora::proxy::Session;
 
 use crate::matcher::cel_session_context::ensure_context;
@@ -24,7 +23,7 @@ impl RemoveHeaderConfig {
 }
 
 pub struct RemoveHeaderMiddleware {
-  name: Arc<str>,
+  name: String,
   cel_program: Option<Program>,
 }
 
@@ -42,7 +41,7 @@ impl RemoveHeaderMiddleware {
     };
 
     Ok(Self {
-      name: Arc::from(cfg.name),
+      name: cfg.name,
       cel_program,
     })
   }
@@ -59,17 +58,18 @@ impl RemoveHeaderMiddleware {
 
 #[async_trait]
 impl Middleware for RemoveHeaderMiddleware {
-  async fn request_filter(
+  async fn upstream_request_filter(
     &self,
     proxy_ctx: &mut ProxyCtx,
     session: &mut Session,
-  ) -> Result<bool, String> {
+    upstream_request: &mut RequestHeader,
+  ) -> Result<(), String> {
     if !self.should_apply(proxy_ctx, session) {
-      return Ok(false);
+      return Ok(());
     }
 
     let name = self.name.to_string();
-    session.as_downstream_mut().req_header_mut().remove_header(&name);
-    Ok(false)
+    upstream_request.remove_header(&name);
+    Ok(())
   }
 }

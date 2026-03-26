@@ -1,6 +1,5 @@
 use std::collections::BTreeSet;
 use std::str::FromStr;
-use std::sync::Arc;
 
 use futures::executor::block_on;
 use pingora::lb::discovery;
@@ -41,7 +40,7 @@ impl DynLoadBalancer for ConsistentDynLb {
 pub fn build_load_balancer(
   upstreams: &[UpstreamEndpoint],
   cfg: &LoadBalancerConfig,
-) -> Result<Option<Arc<dyn DynLoadBalancer>>, String> {
+) -> Result<Option<Box<dyn DynLoadBalancer>>, String> {
   let mut backends_set = BTreeSet::new();
 
   for (idx, upstream) in upstreams.iter().enumerate() {
@@ -84,12 +83,12 @@ pub fn build_load_balancer(
     LoadBalancerAlgorithm::RoundRobin => {
       let lb = LoadBalancer::<RoundRobin>::from_backends(backends);
       block_on(lb.update()).map_err(|e| format!("failed to update round_robin lb: {e}"))?;
-      Ok(Some(Arc::new(RoundRobinDynLb { inner: lb })))
+      Ok(Some(Box::new(RoundRobinDynLb { inner: lb })))
     }
     LoadBalancerAlgorithm::ConsistentHash => {
       let lb = LoadBalancer::<Consistent>::from_backends(backends);
       block_on(lb.update()).map_err(|e| format!("failed to update consistent_hash lb: {e}"))?;
-      Ok(Some(Arc::new(ConsistentDynLb { inner: lb })))
+      Ok(Some(Box::new(ConsistentDynLb { inner: lb })))
     }
   }
 }

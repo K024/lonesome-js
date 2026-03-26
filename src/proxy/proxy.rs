@@ -39,15 +39,13 @@ impl DenaliProxy {
     )
   }
 
-  fn resolve_route(&self, session: &Session, ctx: &mut ProxyCtx) -> Option<Arc<Route>> {
-    if let Some(route) = ctx.route() {
-      return Some(route.clone());
-    }
-
+  fn ensure_ctx_route(&self, session: &Session, ctx: &mut ProxyCtx) -> bool {
     let snapshot = self.routes.read_snapshot();
-    let route = snapshot.find_first_match(session, ctx)?;
-    ctx.set_route(route.clone());
-    Some(route)
+    if let Some(route) = snapshot.find_first_match(session, ctx) {
+      ctx.set_route(route.clone());
+      return true;
+    }
+    return false;
   }
 
   fn current_route(ctx: &ProxyCtx) -> Option<Arc<Route>> {
@@ -66,8 +64,9 @@ impl ProxyHttp for DenaliProxy {
   async fn early_request_filter(&self, session: &mut Session, ctx: &mut Self::CTX) -> Result<()> {
     ctx.reset_for_request();
     let _ = ensure_session_cel_context(session, ctx);
+    let _ = self.ensure_ctx_route(session, ctx);
 
-    if let Some(route) = self.resolve_route(session, ctx) {
+    if let Some(route) = Self::current_route(ctx) {
       for middleware in route.middlewares() {
         middleware
           .early_request_filter(ctx, session)
@@ -80,7 +79,7 @@ impl ProxyHttp for DenaliProxy {
   }
 
   async fn request_filter(&self, session: &mut Session, ctx: &mut Self::CTX) -> Result<bool> {
-    let Some(route) = self.resolve_route(session, ctx) else {
+    let Some(route) = Self::current_route(ctx) else {
       return Ok(false);
     };
 
@@ -104,7 +103,7 @@ impl ProxyHttp for DenaliProxy {
     end_of_stream: bool,
     ctx: &mut Self::CTX,
   ) -> Result<()> {
-    let Some(route) = self.resolve_route(session, ctx) else {
+    let Some(route) = Self::current_route(ctx) else {
       return Ok(());
     };
 
@@ -119,7 +118,7 @@ impl ProxyHttp for DenaliProxy {
   }
 
   async fn proxy_upstream_filter(&self, session: &mut Session, ctx: &mut Self::CTX) -> Result<bool> {
-    let Some(route) = self.resolve_route(session, ctx) else {
+    let Some(route) = Self::current_route(ctx) else {
       return Ok(true);
     };
 
@@ -138,10 +137,10 @@ impl ProxyHttp for DenaliProxy {
 
   async fn upstream_peer(
     &self,
-    session: &mut Session,
+    _session: &mut Session,
     ctx: &mut Self::CTX,
   ) -> Result<Box<HttpPeer>> {
-    let route = self.resolve_route(session, ctx).ok_or_else(|| {
+    let route = Self::current_route(ctx).ok_or_else(|| {
       pingora::Error::because(
         ErrorType::HTTPStatus(404),
         "no route matched",
