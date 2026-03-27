@@ -3,6 +3,10 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use bytes::Bytes;
+use pingora::cache::{
+  key::HashBinary, CacheKey, CacheMeta, ForcedFreshness, HitHandler, NoCacheReason,
+  RespCacheable,
+};
 use pingora::http::{HMap, RequestHeader, ResponseHeader};
 use pingora::protocols::Digest;
 use pingora::proxy::{FailToProxy, ProxyHttp, Session};
@@ -10,6 +14,7 @@ use pingora::upstreams::peer::HttpPeer;
 use pingora::{Error, ErrorType, Result};
 
 use crate::matcher::cel_session_context::ensure_session_cel_context;
+use crate::proxy::cache::{build_cache_key, ProxyCacheHandler};
 use crate::proxy::ctx::ProxyCtx;
 use crate::route::{Route, SharedRouteTable};
 
@@ -50,6 +55,10 @@ impl DenaliProxy {
 
   fn current_route(ctx: &ProxyCtx) -> Option<Arc<Route>> {
     ctx.route().cloned()
+  }
+
+  fn current_cache_handler(ctx: &ProxyCtx) -> Option<Arc<dyn ProxyCacheHandler>> {
+    ctx.cache_handler.clone()
   }
 }
 
@@ -251,6 +260,12 @@ impl ProxyHttp for DenaliProxy {
     upstream_response: &mut ResponseHeader,
     ctx: &mut Self::CTX,
   ) -> Result<()> {
+    if let Some(cache) = Self::current_cache_handler(ctx) {
+      cache
+        .response_filter(session, upstream_response)
+        .map_err(|e| Self::map_middleware_error("cache response_filter failed", e))?;
+    }
+
     let Some(route) = Self::current_route(ctx) else {
       return Ok(());
     };
@@ -355,6 +370,121 @@ impl ProxyHttp for DenaliProxy {
 
     Ok(replacement)
   }
+
+
+  // cache callbacks
+
+  fn request_cache_filter(&self, session: &mut Session, ctx: &mut Self::CTX) -> Result<()> {
+    let Some(cache) = Self::current_cache_handler(ctx) else {
+      return Ok(());
+    };
+
+    cache
+      .request_cache_filter(session)
+      .map_err(|e| Self::map_middleware_error("cache request_cache_filter failed", e))
+  }
+
+  fn cache_key_callback(&self, session: &Session, ctx: &mut Self::CTX) -> Result<CacheKey> {
+    let Some(cache) = Self::current_cache_handler(ctx) else {
+      return Err(pingora::Error::because(
+        ErrorType::InternalError,
+        "cache middleware not configured",
+        std::io::Error::other("cache callbacks missing"),
+      ));
+    };
+
+    cache
+      .cache_key_callback(session)
+      .map(build_cache_key)
+      .map_err(|e| Self::map_middleware_error("cache cache_key_callback failed", e))
+  }
+
+  fn cache_miss(&self, session: &mut Session, ctx: &mut Self::CTX) {
+    if let Some(cache) = Self::current_cache_handler(ctx) {
+      cache.cache_miss(session);
+    } else {
+      session.cache.cache_miss();
+    }
+  }
+
+  async fn cache_hit_filter(
+    &self,
+    session: &mut Session,
+    meta: &CacheMeta,
+    hit_handler: &mut HitHandler,
+    is_fresh: bool,
+    ctx: &mut Self::CTX,
+  ) -> Result<Option<ForcedFreshness>> {
+    let Some(cache) = Self::current_cache_handler(ctx) else {
+      return Ok(None);
+    };
+
+    cache
+      .cache_hit_filter(session, meta, hit_handler, is_fresh)
+      .map_err(|e| Self::map_middleware_error("cache cache_hit_filter failed", e))
+  }
+
+  fn response_cache_filter(
+    &self,
+    session: &Session,
+    resp: &ResponseHeader,
+    ctx: &mut Self::CTX,
+  ) -> Result<RespCacheable> {
+    let Some(cache) = Self::current_cache_handler(ctx) else {
+      return Ok(RespCacheable::Uncacheable(NoCacheReason::Custom("default")));
+    };
+
+    cache
+      .response_cache_filter(session, resp)
+      .map_err(|e| Self::map_middleware_error("cache response_cache_filter failed", e))
+  }
+
+  fn cache_vary_filter(
+    &self,
+    meta: &CacheMeta,
+    ctx: &mut Self::CTX,
+    req: &RequestHeader,
+  ) -> Option<HashBinary> {
+    let Some(cache) = Self::current_cache_handler(ctx) else {
+      return None;
+    };
+
+    cache.cache_vary_filter(meta, req)
+  }
+
+  fn cache_not_modified_filter(
+    &self,
+    session: &Session,
+    resp: &ResponseHeader,
+    ctx: &mut Self::CTX,
+  ) -> Result<bool> {
+    let Some(cache) = Self::current_cache_handler(ctx) else {
+      return Ok(pingora::protocols::http::conditional_filter::not_modified_filter(
+        session.req_header(),
+        resp,
+      ));
+    };
+
+    cache
+      .cache_not_modified_filter(session, resp)
+      .map_err(|e| Self::map_middleware_error("cache cache_not_modified_filter failed", e))
+  }
+
+  fn should_serve_stale(
+    &self,
+    session: &mut Session,
+    ctx: &mut Self::CTX,
+    error: Option<&Error>,
+  ) -> bool {
+    if let Some(cache) = Self::current_cache_handler(ctx) {
+      return cache.should_serve_stale(session, error);
+    }
+
+    error.is_some_and(|e| e.esource() == &pingora::ErrorSource::Upstream)
+  }
+
+
+  // error callbacks
 
   fn error_while_proxy(
     &self,

@@ -11,6 +11,8 @@ impl MiddlewareConfig {
       MiddlewareType::RewriteMethod(cfg) => cfg.validate(),
       MiddlewareType::RequestHeaders(cfg) => cfg.validate(),
       MiddlewareType::ResponseHeaders(cfg) => cfg.validate(),
+      MiddlewareType::Compression(cfg) => cfg.validate(),
+      MiddlewareType::Cache(cfg) => cfg.validate(),
     }
   }
 }

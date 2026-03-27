@@ -1,3 +1,5 @@
+pub mod cache;
+pub mod compression;
 pub mod middleware;
 pub mod registry;
 pub mod request_headers;

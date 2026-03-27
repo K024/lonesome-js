@@ -1,6 +1,8 @@
 use serde::Deserialize;
 
 use crate::config::MiddlewareConfig;
+use crate::middlewares::cache::{CacheConfig, CacheMiddleware};
+use crate::middlewares::compression::{CompressionConfig, CompressionMiddleware};
 use crate::middlewares::request_headers::{RequestHeadersConfig, RequestHeadersMiddleware};
 use crate::middlewares::response_headers::{ResponseHeadersConfig, ResponseHeadersMiddleware};
 use crate::middlewares::rewrite_method::{RewriteMethodConfig, RewriteMethodMiddleware};
@@ -12,6 +14,8 @@ pub enum MiddlewareType {
   RewriteMethod(RewriteMethodConfig),
   RequestHeaders(RequestHeadersConfig),
   ResponseHeaders(ResponseHeadersConfig),
+  Compression(CompressionConfig),
+  Cache(CacheConfig),
 }
 
 pub fn build_middleware(cfg: &MiddlewareConfig) -> Result<Box<dyn Middleware>, String> {
@@ -25,5 +29,9 @@ pub fn build_middleware(cfg: &MiddlewareConfig) -> Result<Box<dyn Middleware>, S
     MiddlewareType::ResponseHeaders(v) => {
       Ok(Box::new(ResponseHeadersMiddleware::from_config(v.clone())?))
     }
+    MiddlewareType::Compression(v) => {
+      Ok(Box::new(CompressionMiddleware::from_config(v.clone())?))
+    }
+    MiddlewareType::Cache(v) => Ok(Box::new(CacheMiddleware::from_config(v.clone())?)),
   }
 }
