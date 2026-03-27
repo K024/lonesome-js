@@ -3,10 +3,10 @@ use std::sync::{Arc, OnceLock};
 use cel::objects::Key;
 use cel::{Context, FunctionContext, Value};
 
-fn get_string_var(ftx: &FunctionContext, name: &str) -> Option<String> {
+fn get_string_var(ftx: &FunctionContext, name: &str) -> Option<Arc<String>> {
   let val = ftx.ptx.get_variable(name)?;
   match Value::try_from(val.as_ref()) {
-    Ok(Value::String(v)) => Some((*v).clone()),
+    Ok(Value::String(v)) => Some(v),
     _ => None,
   }
 }
@@ -73,31 +73,31 @@ fn contains_kv_from_list_var(
 
 fn host(ftx: &FunctionContext, expected: Arc<String>) -> bool {
   get_string_var(ftx, "host")
-    .map(|v| v == expected.as_str())
+    .map(|v| v == expected)
     .unwrap_or(false)
 }
 
 fn method(ftx: &FunctionContext, expected: Arc<String>) -> bool {
   get_string_var(ftx, "method")
-    .map(|v| v == expected.as_str())
+    .map(|v| v == expected)
     .unwrap_or(false)
 }
 
 fn path(ftx: &FunctionContext, expected: Arc<String>) -> bool {
   get_string_var(ftx, "path")
-    .map(|v| v == expected.as_str())
+    .map(|v| v == expected)
     .unwrap_or(false)
 }
 
 fn path_prefix(ftx: &FunctionContext, prefix: Arc<String>) -> bool {
   get_string_var(ftx, "path")
-    .map(|v| v.starts_with(prefix.as_str()))
+    .map(|v| v.starts_with(prefix.as_ref()))
     .unwrap_or(false)
 }
 
 fn client_ip(ftx: &FunctionContext, ip: Arc<String>) -> bool {
   get_string_var(ftx, "clientIP")
-    .map(|v| v == ip.as_str())
+    .map(|v| v == ip)
     .unwrap_or(false)
 }
 

@@ -1,7 +1,8 @@
 use cel::Context;
 use pingora::proxy::Session;
 use serde::Serialize;
-use url::form_urlencoded;
+use form_urlencoded;
+use percent_encoding;
 
 use crate::proxy::ctx::ProxyCtx;
 
@@ -63,31 +64,9 @@ fn read_session_cel_context(session: &Session) -> SessionCelContext {
 }
 
 fn decode_path(path: &str) -> String {
-  match url::Url::parse(&format!("http://denali.local{path}")) {
-    Ok(u) => u
-      .path_segments()
-      .map(|segments| {
-        let mut out = String::new();
-        for seg in segments {
-          out.push('/');
-          out.push_str(&decode_component(seg));
-        }
-        if out.is_empty() {
-          "/".to_string()
-        } else {
-          out
-        }
-      })
-      .unwrap_or_else(|| path.to_string()),
-    Err(_) => path.to_string(),
-  }
-}
-
-fn decode_component(input: &str) -> String {
-  form_urlencoded::parse(format!("v={input}").as_bytes())
-    .next()
-    .map(|(_, value)| value.into_owned())
-    .unwrap_or_else(|| input.to_string())
+  percent_encoding::percent_decode_str(path)
+    .decode_utf8_lossy()
+    .into_owned()
 }
 
 fn parse_query_pairs(query_raw: &str) -> Vec<NameValuePair> {

@@ -63,7 +63,7 @@ impl UpstreamPool {
         LoadBalancerConfig {
           algorithm: LoadBalancerAlgorithm::ConsistentHash,
           max_iterations: 256,
-          hash_key_cel: None,
+          hash_key_rule: None,
         }
       } else {
         LoadBalancerConfig::default()
@@ -77,10 +77,10 @@ impl UpstreamPool {
     };
 
     let hash_key_program = lb_cfg
-      .hash_key_cel
+      .hash_key_rule
       .as_ref()
       .map(|expr| {
-        Program::compile(expr).map_err(|e| format!("invalid lb.hash_key_cel '{expr}': {e}"))
+        Program::compile(expr).map_err(|e| format!("invalid lb.hash_key_rule '{expr}': {e}"))
       })
       .transpose()?;
 
@@ -129,8 +129,8 @@ impl UpstreamPool {
       Ok(Value::Int(v)) => Ok(v.to_string().into_bytes()),
       Ok(Value::UInt(v)) => Ok(v.to_string().into_bytes()),
       Ok(Value::Bool(v)) => Ok(v.to_string().into_bytes()),
-      Ok(other) => Err(format!("lb.hash_key_cel must resolve to scalar, got {other:?}")),
-      Err(e) => Err(format!("failed to evaluate lb.hash_key_cel: {e}")),
+      Ok(other) => Err(format!("lb.hash_key_rule must resolve to scalar, got {other:?}")),
+      Err(e) => Err(format!("failed to evaluate lb.hash_key_rule: {e}")),
     }
   }
 

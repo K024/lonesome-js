@@ -1,15 +1,29 @@
+use serde::Deserialize;
+
 use crate::config::MiddlewareConfig;
-use crate::middlewares::add_header::AddHeaderMiddleware;
-use crate::middlewares::remove_header::RemoveHeaderMiddleware;
-use crate::middlewares::{Middleware, MiddlewareType};
+use crate::middlewares::request_headers::{RequestHeadersConfig, RequestHeadersMiddleware};
+use crate::middlewares::response_headers::{ResponseHeadersConfig, ResponseHeadersMiddleware};
+use crate::middlewares::rewrite_method::{RewriteMethodConfig, RewriteMethodMiddleware};
+use crate::middlewares::Middleware;
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum MiddlewareType {
+  RewriteMethod(RewriteMethodConfig),
+  RequestHeaders(RequestHeadersConfig),
+  ResponseHeaders(ResponseHeadersConfig),
+}
 
 pub fn build_middleware(cfg: &MiddlewareConfig) -> Result<Box<dyn Middleware>, String> {
   match &cfg.r#type {
-    MiddlewareType::AddHeader(v) => {
-      Ok(Box::new(AddHeaderMiddleware::from_config(v.clone())?))
+    MiddlewareType::RewriteMethod(v) => {
+      Ok(Box::new(RewriteMethodMiddleware::from_config(v.clone())?))
     }
-    MiddlewareType::RemoveHeader(v) => {
-      Ok(Box::new(RemoveHeaderMiddleware::from_config(v.clone())?))
+    MiddlewareType::RequestHeaders(v) => {
+      Ok(Box::new(RequestHeadersMiddleware::from_config(v.clone())?))
+    }
+    MiddlewareType::ResponseHeaders(v) => {
+      Ok(Box::new(ResponseHeadersMiddleware::from_config(v.clone())?))
     }
   }
 }

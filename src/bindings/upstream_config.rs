@@ -8,7 +8,7 @@ use crate::config::{
 pub struct NapiLoadBalancerConfig {
   pub algorithm: Option<String>,
   pub max_iterations: Option<u32>,
-  pub hash_key_cel: Option<String>,
+  pub hash_key_rule: Option<String>,
 }
 
 #[napi(object)]
@@ -33,7 +33,7 @@ impl TryFrom<NapiLoadBalancerConfig> for LoadBalancerConfig {
     Ok(LoadBalancerConfig {
       algorithm,
       max_iterations: value.max_iterations.unwrap_or(256) as usize,
-      hash_key_cel: value.hash_key_cel.filter(|s| !s.trim().is_empty()),
+      hash_key_rule: value.hash_key_rule.filter(|s| !s.trim().is_empty()),
     })
   }
 }

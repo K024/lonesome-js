@@ -11,6 +11,7 @@ use crate::proxy::ctx::ProxyCtx;
 
 #[async_trait]
 pub trait Middleware: Send + Sync {
+  // First phase for each request. Runs before main proxy logic.
   async fn early_request_filter(
     &self,
     _proxy_ctx: &mut ProxyCtx,
@@ -19,6 +20,7 @@ pub trait Middleware: Send + Sync {
     Ok(())
   }
 
+  // Main request phase. Returning Ok(true) means request was handled and should short-circuit.
   async fn request_filter(
     &self,
     _proxy_ctx: &mut ProxyCtx,
@@ -27,6 +29,7 @@ pub trait Middleware: Send + Sync {
     Ok(false)
   }
 
+  // Called for each downstream request body chunk before sending to upstream.
   async fn request_body_filter(
     &self,
     _proxy_ctx: &mut ProxyCtx,
@@ -37,6 +40,7 @@ pub trait Middleware: Send + Sync {
     Ok(())
   }
 
+  // Controls whether proxying to upstream should continue. Returning false stops upstream flow.
   async fn proxy_upstream_filter(
     &self,
     _proxy_ctx: &mut ProxyCtx,
@@ -45,6 +49,7 @@ pub trait Middleware: Send + Sync {
     Ok(true)
   }
 
+  // Mutate request header right before it is sent to upstream.
   async fn upstream_request_filter(
     &self,
     _proxy_ctx: &mut ProxyCtx,
@@ -54,6 +59,7 @@ pub trait Middleware: Send + Sync {
     Ok(())
   }
 
+  // Called after successful upstream connection setup.
   async fn connected_to_upstream(
     &self,
     _proxy_ctx: &mut ProxyCtx,
@@ -65,6 +71,7 @@ pub trait Middleware: Send + Sync {
     Ok(())
   }
 
+  // Called when connecting to upstream fails; may transform error for retry policy.
   fn fail_to_connect(
     &self,
     _proxy_ctx: &mut ProxyCtx,
@@ -75,6 +82,7 @@ pub trait Middleware: Send + Sync {
     Ok(error)
   }
 
+  // Upstream response header phase (before downstream response filters/caching integration points).
   async fn upstream_response_filter(
     &self,
     _proxy_ctx: &mut ProxyCtx,
@@ -84,6 +92,7 @@ pub trait Middleware: Send + Sync {
     Ok(())
   }
 
+  // Upstream response body chunk phase.
   fn upstream_response_body_filter(
     &self,
     _proxy_ctx: &mut ProxyCtx,
@@ -94,6 +103,7 @@ pub trait Middleware: Send + Sync {
     Ok(None)
   }
 
+  // Upstream response trailer phase.
   fn upstream_response_trailer_filter(
     &self,
     _proxy_ctx: &mut ProxyCtx,
@@ -103,6 +113,7 @@ pub trait Middleware: Send + Sync {
     Ok(())
   }
 
+  // Final response header phase before sending to downstream.
   async fn response_filter(
     &self,
     _proxy_ctx: &mut ProxyCtx,
@@ -112,6 +123,7 @@ pub trait Middleware: Send + Sync {
     Ok(())
   }
 
+  // Final response body chunk phase before sending to downstream.
   fn response_body_filter(
     &self,
     _proxy_ctx: &mut ProxyCtx,
@@ -122,6 +134,7 @@ pub trait Middleware: Send + Sync {
     Ok(None)
   }
 
+  // Final response trailer phase before sending to downstream.
   async fn response_trailer_filter(
     &self,
     _proxy_ctx: &mut ProxyCtx,
@@ -131,6 +144,7 @@ pub trait Middleware: Send + Sync {
     Ok(None)
   }
 
+  // Called on proxy IO errors after connection is established; may mutate retry behavior.
   fn error_while_proxy(
     &self,
     _proxy_ctx: &mut ProxyCtx,
@@ -142,6 +156,7 @@ pub trait Middleware: Send + Sync {
     Ok(error)
   }
 
+  // Terminal error phase for custom downstream error response behavior.
   async fn fail_to_proxy(
     &self,
     _proxy_ctx: &mut ProxyCtx,
@@ -151,6 +166,7 @@ pub trait Middleware: Send + Sync {
     Ok(None)
   }
 
+  // Last phase for cleanup/metrics/logging; runs after request completion or error.
   async fn logging(
     &self,
     _proxy_ctx: &mut ProxyCtx,

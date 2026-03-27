@@ -20,7 +20,7 @@ impl Route {
     cfg.validate()?;
     let priority = cfg.effective_priority();
 
-    let matcher = Matcher::from_cel(cfg.matcher.cel.clone())?;
+    let matcher = Matcher::from_cel(cfg.matcher.rule.clone())?;
 
     let mut middlewares = Vec::with_capacity(cfg.middlewares.len());
     for mw in &cfg.middlewares {

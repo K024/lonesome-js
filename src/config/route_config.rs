@@ -3,7 +3,7 @@ use super::upstream_config::{LoadBalancerConfig, UpstreamConfig};
 
 #[derive(Clone, Debug)]
 pub struct RouteMatcherConfig {
-  pub cel: String,
+  pub rule: String,
   pub priority: Option<i32>,
 }
 
@@ -21,8 +21,8 @@ impl RouteConfig {
     if self.id.trim().is_empty() {
       return Err("route.id cannot be empty".to_string());
     }
-    if self.matcher.cel.trim().is_empty() {
-      return Err("route.matcher.cel cannot be empty".to_string());
+    if self.matcher.rule.trim().is_empty() {
+      return Err("route.matcher.rule cannot be empty".to_string());
     }
     if self.upstreams.is_empty() {
       return Err("route.upstreams cannot be empty".to_string());
@@ -41,6 +41,6 @@ impl RouteConfig {
   pub fn effective_priority(&self) -> i32 {
     self.matcher
       .priority
-      .unwrap_or(self.matcher.cel.len() as i32)
+      .unwrap_or(self.matcher.rule.len() as i32)
   }
 }

@@ -47,7 +47,7 @@ pub enum LoadBalancerAlgorithm {
 pub struct LoadBalancerConfig {
   pub algorithm: LoadBalancerAlgorithm,
   pub max_iterations: usize,
-  pub hash_key_cel: Option<String>,
+  pub hash_key_rule: Option<String>,
 }
 
 impl Default for LoadBalancerConfig {
@@ -55,7 +55,7 @@ impl Default for LoadBalancerConfig {
     Self {
       algorithm: LoadBalancerAlgorithm::RoundRobin,
       max_iterations: 256,
-      hash_key_cel: None,
+      hash_key_rule: None,
     }
   }
 }

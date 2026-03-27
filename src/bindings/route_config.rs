@@ -6,7 +6,7 @@ use crate::config::{RouteConfig, RouteMatcherConfig};
 
 #[napi(object)]
 pub struct NapiRouteMatcherConfig {
-  pub cel: String,
+  pub rule: String,
   pub priority: Option<i32>,
 }
 
@@ -43,7 +43,7 @@ impl TryFrom<NapiRouteConfig> for RouteConfig {
     Ok(RouteConfig {
       id: value.id,
       matcher: RouteMatcherConfig {
-        cel: value.matcher.cel,
+        rule: value.matcher.rule,
         priority: value.matcher.priority,
       },
       middlewares,
