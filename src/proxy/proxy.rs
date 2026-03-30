@@ -1,13 +1,11 @@
 use std::sync::Arc;
-use std::time::Duration;
 
 use async_trait::async_trait;
-use bytes::Bytes;
 use pingora::cache::{
   key::HashBinary, CacheKey, CacheMeta, ForcedFreshness, HitHandler, NoCacheReason,
   RespCacheable,
 };
-use pingora::http::{HMap, RequestHeader, ResponseHeader};
+use pingora::http::{RequestHeader, ResponseHeader};
 use pingora::protocols::Digest;
 use pingora::proxy::{FailToProxy, ProxyHttp, Session};
 use pingora::upstreams::peer::HttpPeer;
@@ -105,26 +103,26 @@ impl ProxyHttp for DenaliProxy {
     Ok(false)
   }
 
-  async fn request_body_filter(
-    &self,
-    session: &mut Session,
-    body: &mut Option<Bytes>,
-    end_of_stream: bool,
-    ctx: &mut Self::CTX,
-  ) -> Result<()> {
-    let Some(route) = Self::current_route(ctx) else {
-      return Ok(());
-    };
+  // async fn request_body_filter(
+  //   &self,
+  //   session: &mut Session,
+  //   body: &mut Option<Bytes>,
+  //   end_of_stream: bool,
+  //   ctx: &mut Self::CTX,
+  // ) -> Result<()> {
+  //   let Some(route) = Self::current_route(ctx) else {
+  //     return Ok(());
+  //   };
 
-    for middleware in route.middlewares() {
-      middleware
-        .request_body_filter(ctx, session, body, end_of_stream)
-        .await
-        .map_err(|e| Self::map_middleware_error("middleware request_body_filter failed", e))?;
-    }
+  //   for middleware in route.middlewares() {
+  //     middleware
+  //       .request_body_filter(ctx, session, body, end_of_stream)
+  //       .await
+  //       .map_err(|e| Self::map_middleware_error("middleware request_body_filter failed", e))?;
+  //   }
 
-    Ok(())
-  }
+  //   Ok(())
+  // }
 
   async fn proxy_upstream_filter(&self, session: &mut Session, ctx: &mut Self::CTX) -> Result<bool> {
     let Some(route) = Self::current_route(ctx) else {
@@ -262,7 +260,7 @@ impl ProxyHttp for DenaliProxy {
   ) -> Result<()> {
     if let Some(cache) = Self::current_cache_handler(ctx) {
       cache
-        .response_filter(session, upstream_response)
+        .response_filter(session, upstream_response, ctx)
         .map_err(|e| Self::map_middleware_error("cache response_filter failed", e))?;
     }
 
@@ -280,96 +278,96 @@ impl ProxyHttp for DenaliProxy {
     Ok(())
   }
 
-  fn upstream_response_body_filter(
-    &self,
-    session: &mut Session,
-    body: &mut Option<Bytes>,
-    end_of_stream: bool,
-    ctx: &mut Self::CTX,
-  ) -> Result<Option<Duration>> {
-    let Some(route) = Self::current_route(ctx) else {
-      return Ok(None);
-    };
+  // fn upstream_response_body_filter(
+  //   &self,
+  //   session: &mut Session,
+  //   body: &mut Option<Bytes>,
+  //   end_of_stream: bool,
+  //   ctx: &mut Self::CTX,
+  // ) -> Result<Option<Duration>> {
+  //   let Some(route) = Self::current_route(ctx) else {
+  //     return Ok(None);
+  //   };
 
-    let mut delay = None;
-    for middleware in route.middlewares() {
-      let this = middleware
-        .upstream_response_body_filter(ctx, session, body, end_of_stream)
-        .map_err(|e| Self::map_middleware_error("middleware upstream_response_body_filter failed", e))?;
-      if this.is_some() {
-        delay = this;
-      }
-    }
+  //   let mut delay = None;
+  //   for middleware in route.middlewares() {
+  //     let this = middleware
+  //       .upstream_response_body_filter(ctx, session, body, end_of_stream)
+  //       .map_err(|e| Self::map_middleware_error("middleware upstream_response_body_filter failed", e))?;
+  //     if this.is_some() {
+  //       delay = this;
+  //     }
+  //   }
 
-    Ok(delay)
-  }
+  //   Ok(delay)
+  // }
 
-  fn upstream_response_trailer_filter(
-    &self,
-    session: &mut Session,
-    upstream_trailers: &mut HMap,
-    ctx: &mut Self::CTX,
-  ) -> Result<()> {
-    let Some(route) = Self::current_route(ctx) else {
-      return Ok(());
-    };
+  // fn upstream_response_trailer_filter(
+  //   &self,
+  //   session: &mut Session,
+  //   upstream_trailers: &mut HMap,
+  //   ctx: &mut Self::CTX,
+  // ) -> Result<()> {
+  //   let Some(route) = Self::current_route(ctx) else {
+  //     return Ok(());
+  //   };
 
-    for middleware in route.middlewares() {
-      middleware
-        .upstream_response_trailer_filter(ctx, session, upstream_trailers)
-        .map_err(|e| Self::map_middleware_error("middleware upstream_response_trailer_filter failed", e))?;
-    }
+  //   for middleware in route.middlewares() {
+  //     middleware
+  //       .upstream_response_trailer_filter(ctx, session, upstream_trailers)
+  //       .map_err(|e| Self::map_middleware_error("middleware upstream_response_trailer_filter failed", e))?;
+  //   }
 
-    Ok(())
-  }
+  //   Ok(())
+  // }
 
-  fn response_body_filter(
-    &self,
-    session: &mut Session,
-    body: &mut Option<Bytes>,
-    end_of_stream: bool,
-    ctx: &mut Self::CTX,
-  ) -> Result<Option<Duration>> {
-    let Some(route) = Self::current_route(ctx) else {
-      return Ok(None);
-    };
+  // fn response_body_filter(
+  //   &self,
+  //   session: &mut Session,
+  //   body: &mut Option<Bytes>,
+  //   end_of_stream: bool,
+  //   ctx: &mut Self::CTX,
+  // ) -> Result<Option<Duration>> {
+  //   let Some(route) = Self::current_route(ctx) else {
+  //     return Ok(None);
+  //   };
 
-    let mut delay = None;
-    for middleware in route.middlewares() {
-      let this = middleware
-        .response_body_filter(ctx, session, body, end_of_stream)
-        .map_err(|e| Self::map_middleware_error("middleware response_body_filter failed", e))?;
-      if this.is_some() {
-        delay = this;
-      }
-    }
+  //   let mut delay = None;
+  //   for middleware in route.middlewares() {
+  //     let this = middleware
+  //       .response_body_filter(ctx, session, body, end_of_stream)
+  //       .map_err(|e| Self::map_middleware_error("middleware response_body_filter failed", e))?;
+  //     if this.is_some() {
+  //       delay = this;
+  //     }
+  //   }
 
-    Ok(delay)
-  }
+  //   Ok(delay)
+  // }
 
-  async fn response_trailer_filter(
-    &self,
-    session: &mut Session,
-    upstream_trailers: &mut HMap,
-    ctx: &mut Self::CTX,
-  ) -> Result<Option<Bytes>> {
-    let Some(route) = Self::current_route(ctx) else {
-      return Ok(None);
-    };
+  // async fn response_trailer_filter(
+  //   &self,
+  //   session: &mut Session,
+  //   upstream_trailers: &mut HMap,
+  //   ctx: &mut Self::CTX,
+  // ) -> Result<Option<Bytes>> {
+  //   let Some(route) = Self::current_route(ctx) else {
+  //     return Ok(None);
+  //   };
 
-    let mut replacement = None;
-    for middleware in route.middlewares() {
-      let this = middleware
-        .response_trailer_filter(ctx, session, upstream_trailers)
-        .await
-        .map_err(|e| Self::map_middleware_error("middleware response_trailer_filter failed", e))?;
-      if this.is_some() {
-        replacement = this;
-      }
-    }
+  //   let mut replacement = None;
+  //   for middleware in route.middlewares() {
+  //     let this = middleware
+  //       .response_trailer_filter(ctx, session, upstream_trailers)
+  //       .await
+  //       .map_err(|e| Self::map_middleware_error("middleware response_trailer_filter failed", e))?;
+  //     if this.is_some() {
+  //       replacement = this;
+  //     }
+  //   }
 
-    Ok(replacement)
-  }
+  //   Ok(replacement)
+  // }
 
 
   // cache callbacks
@@ -380,7 +378,7 @@ impl ProxyHttp for DenaliProxy {
     };
 
     cache
-      .request_cache_filter(session)
+      .request_cache_filter(session, ctx)
       .map_err(|e| Self::map_middleware_error("cache request_cache_filter failed", e))
   }
 
@@ -394,14 +392,14 @@ impl ProxyHttp for DenaliProxy {
     };
 
     cache
-      .cache_key_callback(session)
+      .cache_key_callback(session, ctx)
       .map(build_cache_key)
       .map_err(|e| Self::map_middleware_error("cache cache_key_callback failed", e))
   }
 
   fn cache_miss(&self, session: &mut Session, ctx: &mut Self::CTX) {
     if let Some(cache) = Self::current_cache_handler(ctx) {
-      cache.cache_miss(session);
+      cache.cache_miss(session, ctx);
     } else {
       session.cache.cache_miss();
     }
@@ -420,7 +418,7 @@ impl ProxyHttp for DenaliProxy {
     };
 
     cache
-      .cache_hit_filter(session, meta, hit_handler, is_fresh)
+      .cache_hit_filter(session, meta, hit_handler, is_fresh, ctx)
       .map_err(|e| Self::map_middleware_error("cache cache_hit_filter failed", e))
   }
 
@@ -435,7 +433,7 @@ impl ProxyHttp for DenaliProxy {
     };
 
     cache
-      .response_cache_filter(session, resp)
+      .response_cache_filter(session, resp, ctx)
       .map_err(|e| Self::map_middleware_error("cache response_cache_filter failed", e))
   }
 
@@ -449,7 +447,7 @@ impl ProxyHttp for DenaliProxy {
       return None;
     };
 
-    cache.cache_vary_filter(meta, req)
+    cache.cache_vary_filter(meta, req, ctx)
   }
 
   fn cache_not_modified_filter(
@@ -466,7 +464,7 @@ impl ProxyHttp for DenaliProxy {
     };
 
     cache
-      .cache_not_modified_filter(session, resp)
+      .cache_not_modified_filter(session, resp, ctx)
       .map_err(|e| Self::map_middleware_error("cache cache_not_modified_filter failed", e))
   }
 
@@ -477,10 +475,18 @@ impl ProxyHttp for DenaliProxy {
     error: Option<&Error>,
   ) -> bool {
     if let Some(cache) = Self::current_cache_handler(ctx) {
-      return cache.should_serve_stale(session, error);
+      return cache.should_serve_stale(session, error, ctx);
     }
 
     error.is_some_and(|e| e.esource() == &pingora::ErrorSource::Upstream)
+  }
+
+  fn is_purge(&self, session: &Session, ctx: &Self::CTX) -> bool {
+    if let Some(cache) = Self::current_cache_handler(ctx) {
+      return cache.is_purge(session, ctx);
+    }
+    
+    false
   }
 
 

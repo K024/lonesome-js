@@ -10,3 +10,4 @@ pub mod server;
 pub mod upstream;
 
 pub use bindings::server::DenaliServer;
+pub use bindings::cache::purge_route_cache;

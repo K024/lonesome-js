@@ -30,6 +30,7 @@ impl ProxyCtx {
     self.current_route = None;
     self.session_cel_context = None;
     self.extensions.clear();
+    self.cache_handler = None;
   }
 
   pub fn set_route(&mut self, route: Arc<Route>) {

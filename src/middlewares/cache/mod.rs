@@ -85,3 +85,7 @@ impl Middleware for CacheMiddleware {
     Ok(())
   }
 }
+
+pub async fn purge_route_cache_namespace(route_id: &str) -> Result<(), String> {
+  handler::purge_route_namespace(route_id).await
+}

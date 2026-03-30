@@ -1,25 +1,30 @@
 use std::time::Duration;
+use std::time::SystemTime;
 
 use std::sync::LazyLock;
+use std::sync::RwLock;
 use pingora::cache::cache_control::CacheControl;
 use pingora::cache::eviction::simple_lru::Manager;
 use pingora::cache::lock::{CacheKeyLockImpl, CacheLock};
 use pingora::cache::predictor::Predictor;
 use pingora::cache::{
-  CacheMetaDefaults, CacheOptionOverrides, MemCache, RespCacheable, VarianceBuilder,
+  CacheMetaDefaults, CacheOptionOverrides, ForcedFreshness, HitHandler, MemCache, RespCacheable,
+  VarianceBuilder,
   filters::resp_cacheable,
 };
 use pingora::http::{RequestHeader, ResponseHeader};
 use pingora::proxy::Session;
+use std::collections::HashMap;
 
 use crate::proxy::cache::{CacheKeyParts, ProxyCacheHandler};
+use crate::proxy::ctx::ProxyCtx;
 
 static CACHE_BACKEND: LazyLock<MemCache> = LazyLock::new(MemCache::new);
-static CACHE_PREDICTOR: LazyLock<Predictor<32>> = LazyLock::new(|| Predictor::new(5, None));
-static CACHE_LOCK: LazyLock<Box<CacheKeyLockImpl>> =
-  LazyLock::new(|| CacheLock::new_boxed(Duration::from_secs(2)));
+static CACHE_PREDICTOR: LazyLock<Predictor<32>> = LazyLock::new(|| Predictor::new(32, None));
+static CACHE_LOCK: LazyLock<Box<CacheKeyLockImpl>> = LazyLock::new(|| CacheLock::new_boxed(Duration::from_secs(2)));
 static EVICTION_MANAGER: LazyLock<Manager> = LazyLock::new(|| Manager::new(64 * 1024 * 1024));
 static CACHE_DECISION_DEFAULTS: CacheMetaDefaults = CacheMetaDefaults::new(|_| None, 1, 1);
+static NAMESPACE_PURGE_AT: LazyLock<RwLock<HashMap<String, SystemTime>>> = LazyLock::new(|| RwLock::new(HashMap::new()));
 
 pub(crate) struct CacheHandler {
   max_ttl_secs: u64,
@@ -57,7 +62,7 @@ fn has_vary_star(resp: &ResponseHeader) -> bool {
 }
 
 impl ProxyCacheHandler for CacheHandler {
-  fn request_cache_filter(&self, session: &mut Session) -> Result<(), String> {
+  fn request_cache_filter(&self, session: &mut Session, _ctx: &ProxyCtx) -> Result<(), String> {
     let mut overrides = CacheOptionOverrides::default();
     overrides.wait_timeout = Some(Duration::from_secs(2));
 
@@ -80,6 +85,7 @@ impl ProxyCacheHandler for CacheHandler {
     &self,
     session: &Session,
     resp: &mut ResponseHeader,
+    _ctx: &ProxyCtx,
   ) -> Result<(), String> {
     if !self.inject_cache_headers {
       return Ok(());
@@ -106,7 +112,7 @@ impl ProxyCacheHandler for CacheHandler {
     Ok(())
   }
 
-  fn cache_key_callback(&self, session: &Session) -> Result<CacheKeyParts, String> {
+  fn cache_key_callback(&self, session: &Session, ctx: &ProxyCtx) -> Result<CacheKeyParts, String> {
     let req = session.req_header();
 
     let host = req.headers
@@ -121,16 +127,40 @@ impl ProxyCacheHandler for CacheHandler {
       .unwrap_or("/");
 
     Ok(CacheKeyParts {
-      namespace: String::new(),
+      namespace: ctx.route_id.clone(),
       primary: format!("{host}{path}"),
       user_tag: String::new(),
     })
+  }
+
+  fn cache_hit_filter(
+    &self,
+    _session: &mut Session,
+    meta: &pingora::cache::CacheMeta,
+    _hit_handler: &mut HitHandler,
+    _is_fresh: bool,
+    ctx: &ProxyCtx,
+  ) -> Result<Option<ForcedFreshness>, String> {
+    let purge_at = NAMESPACE_PURGE_AT
+      .read()
+      .map_err(|_| "cache purge map lock poisoned".to_string())?
+      .get(&ctx.route_id)
+      .copied();
+
+    if let Some(ts) = purge_at {
+      if meta.updated() <= ts {
+        return Ok(Some(ForcedFreshness::ForceMiss));
+      }
+    }
+
+    Ok(None)
   }
 
   fn response_cache_filter(
     &self,
     session: &Session,
     resp: &ResponseHeader,
+    _ctx: &ProxyCtx,
   ) -> Result<RespCacheable, String> {
     if has_vary_star(resp) {
       return Ok(RespCacheable::Uncacheable(
@@ -167,7 +197,12 @@ impl ProxyCacheHandler for CacheHandler {
     Ok(cacheable)
   }
 
-  fn cache_vary_filter(&self, meta: &pingora::cache::CacheMeta, req: &RequestHeader) -> Option<pingora::cache::key::HashBinary> {
+  fn cache_vary_filter(
+    &self,
+    meta: &pingora::cache::CacheMeta,
+    req: &RequestHeader,
+    _ctx: &ProxyCtx,
+  ) -> Option<pingora::cache::key::HashBinary> {
     let mut key = VarianceBuilder::new();
 
     let vary_headers_lowercased: Vec<String> = meta
@@ -196,4 +231,17 @@ impl ProxyCacheHandler for CacheHandler {
 
     key.finalize()
   }
+}
+
+pub async fn purge_route_namespace(route_id: &str) -> Result<(), String> {
+  if route_id.is_empty() {
+    return Ok(());
+  }
+
+  NAMESPACE_PURGE_AT
+    .write()
+    .map_err(|_| "cache purge map lock poisoned".to_string())?
+    .insert(route_id.to_string(), SystemTime::now());
+
+  Ok(())
 }

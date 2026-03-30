@@ -1,8 +1,5 @@
-use std::time::Duration;
-
 use async_trait::async_trait;
-use bytes::Bytes;
-use pingora::http::{HMap, RequestHeader, ResponseHeader};
+use pingora::http::{RequestHeader, ResponseHeader};
 use pingora::protocols::Digest;
 use pingora::proxy::{FailToProxy, Session};
 use pingora::upstreams::peer::HttpPeer;
@@ -29,16 +26,16 @@ pub trait Middleware: Send + Sync {
     Ok(false)
   }
 
-  // Called for each downstream request body chunk before sending to upstream.
-  async fn request_body_filter(
-    &self,
-    _proxy_ctx: &mut ProxyCtx,
-    _session: &mut Session,
-    _body: &mut Option<Bytes>,
-    _end_of_stream: bool,
-  ) -> Result<(), String> {
-    Ok(())
-  }
+  // // Called for each downstream request body chunk before sending to upstream.
+  // async fn request_body_filter(
+  //   &self,
+  //   _proxy_ctx: &mut ProxyCtx,
+  //   _session: &mut Session,
+  //   _body: &mut Option<Bytes>,
+  //   _end_of_stream: bool,
+  // ) -> Result<(), String> {
+  //   Ok(())
+  // }
 
   // Controls whether proxying to upstream should continue. Returning false stops upstream flow.
   async fn proxy_upstream_filter(
@@ -92,26 +89,26 @@ pub trait Middleware: Send + Sync {
     Ok(())
   }
 
-  // Upstream response body chunk phase.
-  fn upstream_response_body_filter(
-    &self,
-    _proxy_ctx: &mut ProxyCtx,
-    _session: &mut Session,
-    _body: &mut Option<Bytes>,
-    _end_of_stream: bool,
-  ) -> Result<Option<Duration>, String> {
-    Ok(None)
-  }
+  // // Upstream response body chunk phase.
+  // fn upstream_response_body_filter(
+  //   &self,
+  //   _proxy_ctx: &mut ProxyCtx,
+  //   _session: &mut Session,
+  //   _body: &mut Option<Bytes>,
+  //   _end_of_stream: bool,
+  // ) -> Result<Option<Duration>, String> {
+  //   Ok(None)
+  // }
 
-  // Upstream response trailer phase.
-  fn upstream_response_trailer_filter(
-    &self,
-    _proxy_ctx: &mut ProxyCtx,
-    _session: &mut Session,
-    _upstream_trailers: &mut HMap,
-  ) -> Result<(), String> {
-    Ok(())
-  }
+  // // Upstream response trailer phase.
+  // fn upstream_response_trailer_filter(
+  //   &self,
+  //   _proxy_ctx: &mut ProxyCtx,
+  //   _session: &mut Session,
+  //   _upstream_trailers: &mut HMap,
+  // ) -> Result<(), String> {
+  //   Ok(())
+  // }
 
   // Final response header phase before sending to downstream.
   async fn response_filter(
@@ -123,26 +120,26 @@ pub trait Middleware: Send + Sync {
     Ok(())
   }
 
-  // Final response body chunk phase before sending to downstream.
-  fn response_body_filter(
-    &self,
-    _proxy_ctx: &mut ProxyCtx,
-    _session: &mut Session,
-    _body: &mut Option<Bytes>,
-    _end_of_stream: bool,
-  ) -> Result<Option<Duration>, String> {
-    Ok(None)
-  }
+  // // Final response body chunk phase before sending to downstream.
+  // fn response_body_filter(
+  //   &self,
+  //   _proxy_ctx: &mut ProxyCtx,
+  //   _session: &mut Session,
+  //   _body: &mut Option<Bytes>,
+  //   _end_of_stream: bool,
+  // ) -> Result<Option<Duration>, String> {
+  //   Ok(None)
+  // }
 
-  // Final response trailer phase before sending to downstream.
-  async fn response_trailer_filter(
-    &self,
-    _proxy_ctx: &mut ProxyCtx,
-    _session: &mut Session,
-    _upstream_trailers: &mut HMap,
-  ) -> Result<Option<Bytes>, String> {
-    Ok(None)
-  }
+  // // Final response trailer phase before sending to downstream.
+  // async fn response_trailer_filter(
+  //   &self,
+  //   _proxy_ctx: &mut ProxyCtx,
+  //   _session: &mut Session,
+  //   _upstream_trailers: &mut HMap,
+  // ) -> Result<Option<Bytes>, String> {
+  //   Ok(None)
+  // }
 
   // Called on proxy IO errors after connection is established; may mutate retry behavior.
   fn error_while_proxy(

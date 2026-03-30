@@ -6,6 +6,8 @@ use pingora::http::{RequestHeader, ResponseHeader};
 use pingora::proxy::Session;
 use pingora::{Error, ErrorSource};
 
+use crate::proxy::ctx::ProxyCtx;
+
 #[derive(Clone, Debug, Default)]
 pub struct CacheKeyParts {
   pub namespace: String,
@@ -14,13 +16,13 @@ pub struct CacheKeyParts {
 }
 
 pub trait ProxyCacheHandler: Send + Sync + 'static {
-  fn request_cache_filter(&self, _session: &mut Session) -> Result<(), String> {
+  fn request_cache_filter(&self, _session: &mut Session, _ctx: &ProxyCtx) -> Result<(), String> {
     Ok(())
   }
 
-  fn cache_key_callback(&self, _session: &Session) -> Result<CacheKeyParts, String>;
+  fn cache_key_callback(&self, _session: &Session, _ctx: &ProxyCtx) -> Result<CacheKeyParts, String>;
 
-  fn cache_miss(&self, session: &mut Session) {
+  fn cache_miss(&self, session: &mut Session, _ctx: &ProxyCtx) {
     session.cache.cache_miss();
   }
 
@@ -30,6 +32,7 @@ pub trait ProxyCacheHandler: Send + Sync + 'static {
     _meta: &CacheMeta,
     _hit_handler: &mut HitHandler,
     _is_fresh: bool,
+    _ctx: &ProxyCtx
   ) -> Result<Option<ForcedFreshness>, String> {
     Ok(None)
   }
@@ -38,6 +41,7 @@ pub trait ProxyCacheHandler: Send + Sync + 'static {
     &self,
     _session: &Session,
     _resp: &ResponseHeader,
+    _ctx: &ProxyCtx
   ) -> Result<RespCacheable, String> {
     Ok(RespCacheable::Uncacheable(NoCacheReason::Custom("default")))
   }
@@ -46,6 +50,7 @@ pub trait ProxyCacheHandler: Send + Sync + 'static {
     &self,
     _session: &Session,
     _resp: &mut ResponseHeader,
+    _ctx: &ProxyCtx
   ) -> Result<(), String> {
     Ok(())
   }
@@ -54,6 +59,7 @@ pub trait ProxyCacheHandler: Send + Sync + 'static {
     &self,
     _meta: &CacheMeta,
     _req: &RequestHeader,
+    _ctx: &ProxyCtx
   ) -> Option<HashBinary> {
     None
   }
@@ -62,6 +68,7 @@ pub trait ProxyCacheHandler: Send + Sync + 'static {
     &self,
     session: &Session,
     resp: &ResponseHeader,
+    _ctx: &ProxyCtx
   ) -> Result<bool, String> {
     Ok(pingora::protocols::http::conditional_filter::not_modified_filter(
       session.req_header(),
@@ -69,8 +76,12 @@ pub trait ProxyCacheHandler: Send + Sync + 'static {
     ))
   }
 
-  fn should_serve_stale(&self, _session: &mut Session, error: Option<&Error>) -> bool {
+  fn should_serve_stale(&self, _session: &mut Session, error: Option<&Error>, _ctx: &ProxyCtx) -> bool {
     error.is_some_and(|e| e.esource() == &ErrorSource::Upstream)
+  }
+
+  fn is_purge(&self, _session: &Session, _ctx: &ProxyCtx) -> bool {
+    false
   }
 }
 
