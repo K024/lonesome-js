@@ -70,6 +70,17 @@ pub fn build_load_balancer(
           ext,
         }
       }
+      UpstreamEndpoint::VirtualJs { key, weight, .. } => {
+        let mut ext = Extensions::new();
+        ext.insert(EndpointIndex(idx));
+
+        Backend {
+          addr: SocketAddr::from_str("127.0.0.1:1")
+            .map_err(|e| format!("invalid virtual upstream placeholder for '{key}': {e}"))?,
+          weight: *weight as usize,
+          ext,
+        }
+      }
     };
 
     backends_set.insert(backend);

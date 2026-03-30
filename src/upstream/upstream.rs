@@ -6,6 +6,7 @@ use crate::config::{
   LoadBalancerAlgorithm, LoadBalancerConfig, UpstreamAddressConfig, UpstreamConfig,
 };
 use crate::proxy::ctx::ProxyCtx;
+use crate::virtual_js::virtual_open_connection;
 
 use super::lb::{build_load_balancer, DynLoadBalancer, EndpointIndex};
 
@@ -20,6 +21,12 @@ pub enum UpstreamEndpoint {
   #[cfg(unix)]
   Unix {
     path: String,
+    tls: bool,
+    sni: String,
+    weight: u32,
+  },
+  VirtualJs {
+    key: String,
     tls: bool,
     sni: String,
     weight: u32,
@@ -54,6 +61,12 @@ impl UpstreamPool {
         #[cfg(unix)]
         UpstreamAddressConfig::Unix(path) => UpstreamEndpoint::Unix {
           path: path.clone(),
+          tls: cfg.tls,
+          sni: cfg.sni.clone().unwrap_or_default(),
+          weight: cfg.weight,
+        },
+        UpstreamAddressConfig::VirtualJs(key) => UpstreamEndpoint::VirtualJs {
+          key: key.clone(),
           tls: cfg.tls,
           sni: cfg.sni.clone().unwrap_or_default(),
           weight: cfg.weight,
@@ -164,6 +177,10 @@ impl UpstreamPool {
       UpstreamEndpoint::Unix { path, tls, sni, .. } => HttpPeer::new_uds(path, *tls, sni.clone())
         .map(Box::new)
         .map_err(|e| format!("failed to create uds peer: {e}")),
+      UpstreamEndpoint::VirtualJs { key, tls, sni, .. } => {
+        let peer = virtual_open_connection(key, *tls, sni.clone())?;
+        Ok(Box::new(peer))
+      }
     }
   }
 }

@@ -46,6 +46,7 @@ impl TryFrom<NapiUpstreamConfig> for UpstreamConfig {
       "tcp" => UpstreamAddressConfig::Tcp(value.address),
       #[cfg(unix)]
       "unix" => UpstreamAddressConfig::Unix(value.address),
+      "virtual_js" => UpstreamAddressConfig::VirtualJs(value.address),
       other => return Err(format!("unsupported upstream kind '{other}'")),
     };
 

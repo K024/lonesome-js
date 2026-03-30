@@ -3,6 +3,7 @@ pub enum UpstreamAddressConfig {
   Tcp(String),
   #[cfg(unix)]
   Unix(String),
+  VirtualJs(String),
 }
 
 #[derive(Clone, Debug)]
@@ -25,6 +26,11 @@ impl UpstreamConfig {
       UpstreamAddressConfig::Unix(path) => {
         if path.trim().is_empty() {
           return Err("upstream unix path cannot be empty".to_string());
+        }
+      }
+      UpstreamAddressConfig::VirtualJs(key) => {
+        if key.trim().is_empty() {
+          return Err("upstream virtual_js key cannot be empty".to_string());
         }
       }
     }

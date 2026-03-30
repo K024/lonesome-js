@@ -5,3 +5,4 @@ pub mod server;
 pub mod startup_config;
 pub mod status;
 pub mod upstream_config;
+pub mod virtual_js;
