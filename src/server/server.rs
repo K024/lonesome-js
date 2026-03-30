@@ -110,10 +110,7 @@ impl ChannelShutdownSignalWatch {
 #[async_trait]
 impl ShutdownSignalWatch for ChannelShutdownSignalWatch {
   async fn recv(&self) -> ShutdownSignal {
-    let rx = self
-      .rx
-      .lock()
-      .expect("shutdown receiver mutex poisoned");
+    let rx = self.rx.lock().expect("shutdown receiver mutex poisoned");
     rx.recv().unwrap_or(ShutdownSignal::GracefulTerminate)
   }
 }

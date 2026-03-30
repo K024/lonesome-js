@@ -3,8 +3,13 @@ use serde::Deserialize;
 use crate::config::MiddlewareConfig;
 use crate::middlewares::cache::{CacheConfig, CacheMiddleware};
 use crate::middlewares::compression::{CompressionConfig, CompressionMiddleware};
+use crate::middlewares::cors::{CorsConfig, CorsMiddleware};
+use crate::middlewares::redirect::{RedirectConfig, RedirectMiddleware};
+use crate::middlewares::redirect_https::{RedirectHttpsConfig, RedirectHttpsMiddleware};
 use crate::middlewares::request_headers::{RequestHeadersConfig, RequestHeadersMiddleware};
+use crate::middlewares::respond::{RespondConfig, RespondMiddleware};
 use crate::middlewares::response_headers::{ResponseHeadersConfig, ResponseHeadersMiddleware};
+use crate::middlewares::rewrite::{RewriteConfig, RewriteMiddleware};
 use crate::middlewares::rewrite_method::{RewriteMethodConfig, RewriteMethodMiddleware};
 use crate::middlewares::Middleware;
 
@@ -16,6 +21,11 @@ pub enum MiddlewareType {
   ResponseHeaders(ResponseHeadersConfig),
   Compression(CompressionConfig),
   Cache(CacheConfig),
+  Rewrite(RewriteConfig),
+  Respond(RespondConfig),
+  Redirect(RedirectConfig),
+  RedirectHttps(RedirectHttpsConfig),
+  Cors(CorsConfig),
 }
 
 pub fn build_middleware(cfg: &MiddlewareConfig) -> Result<Box<dyn Middleware>, String> {
@@ -29,9 +39,14 @@ pub fn build_middleware(cfg: &MiddlewareConfig) -> Result<Box<dyn Middleware>, S
     MiddlewareType::ResponseHeaders(v) => {
       Ok(Box::new(ResponseHeadersMiddleware::from_config(v.clone())?))
     }
-    MiddlewareType::Compression(v) => {
-      Ok(Box::new(CompressionMiddleware::from_config(v.clone())?))
-    }
+    MiddlewareType::Compression(v) => Ok(Box::new(CompressionMiddleware::from_config(v.clone())?)),
     MiddlewareType::Cache(v) => Ok(Box::new(CacheMiddleware::from_config(v.clone())?)),
+    MiddlewareType::Rewrite(v) => Ok(Box::new(RewriteMiddleware::from_config(v.clone())?)),
+    MiddlewareType::Respond(v) => Ok(Box::new(RespondMiddleware::from_config(v.clone())?)),
+    MiddlewareType::Redirect(v) => Ok(Box::new(RedirectMiddleware::from_config(v.clone())?)),
+    MiddlewareType::RedirectHttps(v) => {
+      Ok(Box::new(RedirectHttpsMiddleware::from_config(v.clone())?))
+    }
+    MiddlewareType::Cors(v) => Ok(Box::new(CorsMiddleware::from_config(v.clone())?)),
   }
 }

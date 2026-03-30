@@ -35,10 +35,7 @@ impl TryFrom<NapiRouteConfig> for RouteConfig {
       .map(TryInto::try_into)
       .collect::<Result<Vec<_>, String>>()?;
 
-    let load_balancer = value
-      .load_balancer
-      .map(TryInto::try_into)
-      .transpose()?;
+    let load_balancer = value.load_balancer.map(TryInto::try_into).transpose()?;
 
     Ok(RouteConfig {
       id: value.id,

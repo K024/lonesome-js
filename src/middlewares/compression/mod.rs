@@ -37,7 +37,9 @@ impl CompressionConfig {
 
 fn validate_level(name: &str, level: u32) -> Result<(), String> {
   if level > 11 {
-    return Err(format!("middleware compression.{name} must be within [0, 11]"));
+    return Err(format!(
+      "middleware compression.{name} must be within [0, 11]"
+    ));
   }
   Ok(())
 }
@@ -73,7 +75,10 @@ impl CompressionMiddleware {
   }
 
   fn apply_downstream(&self, session: &mut Session) -> Result<(), String> {
-    let Some(compression) = session.downstream_modules_ctx.get_mut::<ResponseCompression>() else {
+    let Some(compression) = session
+      .downstream_modules_ctx
+      .get_mut::<ResponseCompression>()
+    else {
       return Err("downstream compression module is not initialized".to_string());
     };
 

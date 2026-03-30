@@ -66,7 +66,9 @@ impl RequestHeadersMiddleware {
     let action = match cfg.action {
       RequestHeadersActionConfig::Append { value } => RequestHeadersAction::Append { value },
       RequestHeadersActionConfig::Set { value } => RequestHeadersAction::Set { value },
-      RequestHeadersActionConfig::SetDefault { value } => RequestHeadersAction::SetDefault { value },
+      RequestHeadersActionConfig::SetDefault { value } => {
+        RequestHeadersAction::SetDefault { value }
+      }
       RequestHeadersActionConfig::Remove => RequestHeadersAction::Remove,
     };
 

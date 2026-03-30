@@ -25,11 +25,15 @@ impl TryFrom<NapiStartupConfig> for StartupConfig {
       .into_iter()
       .map(|item| match item.kind.as_str() {
         "tcp" => {
-          let addr = item.addr.ok_or_else(|| "startup listener tcp.addr is required".to_string())?;
+          let addr = item
+            .addr
+            .ok_or_else(|| "startup listener tcp.addr is required".to_string())?;
           Ok(StartupListenerConfig::Tcp { addr })
         }
         "tls" => {
-          let addr = item.addr.ok_or_else(|| "startup listener tls.addr is required".to_string())?;
+          let addr = item
+            .addr
+            .ok_or_else(|| "startup listener tls.addr is required".to_string())?;
           let cert_path = item
             .cert_path
             .ok_or_else(|| "startup listener tls.cert_path is required".to_string())?;
@@ -45,7 +49,9 @@ impl TryFrom<NapiStartupConfig> for StartupConfig {
         }
         #[cfg(unix)]
         "unix" => {
-          let path = item.path.ok_or_else(|| "startup listener unix.path is required".to_string())?;
+          let path = item
+            .path
+            .ok_or_else(|| "startup listener unix.path is required".to_string())?;
           Ok(StartupListenerConfig::Unix { path })
         }
         other => Err(format!("unsupported startup listener kind '{other}'")),

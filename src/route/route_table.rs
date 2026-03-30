@@ -19,11 +19,7 @@ impl RouteTable {
       routes.push(route);
     }
 
-    routes.sort_by(|a, b| {
-      b.priority
-        .cmp(&a.priority)
-        .then_with(|| a.id.cmp(&b.id))
-    });
+    routes.sort_by(|a, b| b.priority.cmp(&a.priority).then_with(|| a.id.cmp(&b.id)));
 
     Arc::new(Self { routes })
   }

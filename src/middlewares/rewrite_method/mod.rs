@@ -48,7 +48,10 @@ impl RewriteMethodMiddleware {
       None
     };
 
-    Ok(Self { method, cel_program })
+    Ok(Self {
+      method,
+      cel_program,
+    })
   }
 
   fn should_apply(&self, proxy_ctx: &mut ProxyCtx, session: &Session) -> bool {

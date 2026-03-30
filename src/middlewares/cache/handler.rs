@@ -1,30 +1,31 @@
 use std::time::Duration;
 use std::time::SystemTime;
 
-use std::sync::LazyLock;
-use std::sync::RwLock;
 use pingora::cache::cache_control::CacheControl;
 use pingora::cache::eviction::simple_lru::Manager;
 use pingora::cache::lock::{CacheKeyLockImpl, CacheLock};
 use pingora::cache::predictor::Predictor;
 use pingora::cache::{
-  CacheMetaDefaults, CacheOptionOverrides, ForcedFreshness, HitHandler, MemCache, RespCacheable,
-  VarianceBuilder,
-  filters::resp_cacheable,
+  filters::resp_cacheable, CacheMetaDefaults, CacheOptionOverrides, ForcedFreshness, HitHandler,
+  MemCache, RespCacheable, VarianceBuilder,
 };
 use pingora::http::{RequestHeader, ResponseHeader};
 use pingora::proxy::Session;
 use std::collections::HashMap;
+use std::sync::LazyLock;
+use std::sync::RwLock;
 
 use crate::proxy::cache::{CacheKeyParts, ProxyCacheHandler};
 use crate::proxy::ctx::ProxyCtx;
 
 static CACHE_BACKEND: LazyLock<MemCache> = LazyLock::new(MemCache::new);
 static CACHE_PREDICTOR: LazyLock<Predictor<32>> = LazyLock::new(|| Predictor::new(32, None));
-static CACHE_LOCK: LazyLock<Box<CacheKeyLockImpl>> = LazyLock::new(|| CacheLock::new_boxed(Duration::from_secs(2)));
+static CACHE_LOCK: LazyLock<Box<CacheKeyLockImpl>> =
+  LazyLock::new(|| CacheLock::new_boxed(Duration::from_secs(2)));
 static EVICTION_MANAGER: LazyLock<Manager> = LazyLock::new(|| Manager::new(64 * 1024 * 1024));
 static CACHE_DECISION_DEFAULTS: CacheMetaDefaults = CacheMetaDefaults::new(|_| None, 1, 1);
-static NAMESPACE_PURGE_AT: LazyLock<RwLock<HashMap<String, SystemTime>>> = LazyLock::new(|| RwLock::new(HashMap::new()));
+static NAMESPACE_PURGE_AT: LazyLock<RwLock<HashMap<String, SystemTime>>> =
+  LazyLock::new(|| RwLock::new(HashMap::new()));
 
 pub(crate) struct CacheHandler {
   max_ttl_secs: u64,
@@ -69,7 +70,9 @@ impl ProxyCacheHandler for CacheHandler {
     session.cache.enable(
       &*CACHE_BACKEND,
       Some(&*EVICTION_MANAGER as &'static (dyn pingora::cache::eviction::EvictionManager + Sync)),
-      Some(&*CACHE_PREDICTOR as &'static (dyn pingora::cache::predictor::CacheablePredictor + Sync)),
+      Some(
+        &*CACHE_PREDICTOR as &'static (dyn pingora::cache::predictor::CacheablePredictor + Sync),
+      ),
       Some(CACHE_LOCK.as_ref()),
       Some(overrides),
     );
@@ -115,13 +118,15 @@ impl ProxyCacheHandler for CacheHandler {
   fn cache_key_callback(&self, session: &Session, ctx: &ProxyCtx) -> Result<CacheKeyParts, String> {
     let req = session.req_header();
 
-    let host = req.headers
+    let host = req
+      .headers
       .get("host")
       .and_then(|v| v.to_str().ok())
       .or_else(|| req.uri.authority().map(|a| a.as_str()))
       .unwrap_or("");
 
-    let path = req.uri
+    let path = req
+      .uri
       .path_and_query()
       .map(|pq| pq.as_str())
       .unwrap_or("/");
@@ -171,10 +176,7 @@ impl ProxyCacheHandler for CacheHandler {
     let cc = CacheControl::from_resp_headers_named("cdn-cache-control", resp)
       .or_else(|| CacheControl::from_resp_headers(resp));
 
-    let has_authorization = session
-      .req_header()
-      .headers
-      .contains_key("authorization");
+    let has_authorization = session.req_header().headers.contains_key("authorization");
 
     let mut cacheable = resp_cacheable(
       cc.as_ref(),
@@ -222,7 +224,8 @@ impl ProxyCacheHandler for CacheHandler {
       // Add this header and value to be considered in the variance key.
       key.add_value(
         header_name,
-        req.headers
+        req
+          .headers
           .get(header_name)
           .map(|v| v.as_bytes())
           .unwrap_or(&[]),

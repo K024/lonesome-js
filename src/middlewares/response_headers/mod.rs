@@ -66,7 +66,9 @@ impl ResponseHeadersMiddleware {
     let action = match cfg.action {
       ResponseHeadersActionConfig::Append { value } => ResponseHeadersAction::Append { value },
       ResponseHeadersActionConfig::Set { value } => ResponseHeadersAction::Set { value },
-      ResponseHeadersActionConfig::SetDefault { value } => ResponseHeadersAction::SetDefault { value },
+      ResponseHeadersActionConfig::SetDefault { value } => {
+        ResponseHeadersAction::SetDefault { value }
+      }
       ResponseHeadersActionConfig::Remove => ResponseHeadersAction::Remove,
     };
 

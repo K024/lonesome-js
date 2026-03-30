@@ -39,7 +39,8 @@ impl RouteConfig {
   }
 
   pub fn effective_priority(&self) -> i32 {
-    self.matcher
+    self
+      .matcher
       .priority
       .unwrap_or(self.matcher.rule.len() as i32)
   }

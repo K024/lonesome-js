@@ -34,7 +34,10 @@ impl DenaliServer {
   pub fn start(&self, startup: NapiStartupConfig) -> Result<()> {
     let startup_cfg = startup.try_into().map_err(napi_err)?;
 
-    let mut guard = self.runtime.lock().map_err(|_| napi_err("runtime mutex poisoned"))?;
+    let mut guard = self
+      .runtime
+      .lock()
+      .map_err(|_| napi_err("runtime mutex poisoned"))?;
     if guard.is_some() {
       return Err(napi_err("denali server already started"));
     }
@@ -46,7 +49,10 @@ impl DenaliServer {
 
   #[napi]
   pub fn stop(&self) -> Result<()> {
-    let mut guard = self.runtime.lock().map_err(|_| napi_err("runtime mutex poisoned"))?;
+    let mut guard = self
+      .runtime
+      .lock()
+      .map_err(|_| napi_err("runtime mutex poisoned"))?;
     if let Some(rt) = guard.as_mut() {
       rt.stop().map_err(napi_err)?;
     }
@@ -69,7 +75,10 @@ impl DenaliServer {
 
   #[napi]
   pub fn status(&self) -> Result<NapiServerStatus> {
-    let guard = self.runtime.lock().map_err(|_| napi_err("runtime mutex poisoned"))?;
+    let guard = self
+      .runtime
+      .lock()
+      .map_err(|_| napi_err("runtime mutex poisoned"))?;
     Ok(NapiServerStatus {
       running: guard.as_ref().is_some_and(DenaliRuntime::is_running),
       route_count: self.routes.route_count() as u32,

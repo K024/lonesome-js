@@ -34,7 +34,10 @@ pub struct UpstreamPool {
 }
 
 impl UpstreamPool {
-  pub fn from_config(upstreams: &[UpstreamConfig], lb_cfg: Option<LoadBalancerConfig>) -> Result<Self, String> {
+  pub fn from_config(
+    upstreams: &[UpstreamConfig],
+    lb_cfg: Option<LoadBalancerConfig>,
+  ) -> Result<Self, String> {
     if upstreams.is_empty() {
       return Err("route.upstreams cannot be empty".to_string());
     }
@@ -92,11 +95,7 @@ impl UpstreamPool {
     })
   }
 
-  pub fn select_peer(
-    &self,
-    proxy_ctx: &ProxyCtx,
-    route_id: &str,
-  ) -> Result<Box<HttpPeer>, String> {
+  pub fn select_peer(&self, proxy_ctx: &ProxyCtx, route_id: &str) -> Result<Box<HttpPeer>, String> {
     if self.endpoints.len() == 1 {
       return self.peer_from_endpoint(&self.endpoints[0]);
     }
@@ -110,7 +109,9 @@ impl UpstreamPool {
       }
     }
 
-    Err(format!("route '{route_id}' failed to select upstream backend"))
+    Err(format!(
+      "route '{route_id}' failed to select upstream backend"
+    ))
   }
 
   fn selection_key(&self, proxy_ctx: &ProxyCtx) -> Result<Vec<u8>, String> {
@@ -129,7 +130,9 @@ impl UpstreamPool {
       Ok(Value::Int(v)) => Ok(v.to_string().into_bytes()),
       Ok(Value::UInt(v)) => Ok(v.to_string().into_bytes()),
       Ok(Value::Bool(v)) => Ok(v.to_string().into_bytes()),
-      Ok(other) => Err(format!("lb.hash_key_rule must resolve to scalar, got {other:?}")),
+      Ok(other) => Err(format!(
+        "lb.hash_key_rule must resolve to scalar, got {other:?}"
+      )),
       Err(e) => Err(format!("failed to evaluate lb.hash_key_rule: {e}")),
     }
   }
@@ -154,9 +157,9 @@ impl UpstreamPool {
 
   fn peer_from_endpoint(&self, endpoint: &UpstreamEndpoint) -> Result<Box<HttpPeer>, String> {
     match endpoint {
-      UpstreamEndpoint::Tcp { address, tls, sni, .. } => {
-        Ok(Box::new(HttpPeer::new(address, *tls, sni.clone())))
-      }
+      UpstreamEndpoint::Tcp {
+        address, tls, sni, ..
+      } => Ok(Box::new(HttpPeer::new(address, *tls, sni.clone()))),
       #[cfg(unix)]
       UpstreamEndpoint::Unix { path, tls, sni, .. } => HttpPeer::new_uds(path, *tls, sni.clone())
         .map(Box::new)

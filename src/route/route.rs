@@ -38,11 +38,7 @@ impl Route {
     })
   }
 
-  pub fn matches(
-    &self,
-    session: &pingora::proxy::Session,
-    proxy_ctx: &mut ProxyCtx,
-  ) -> bool {
+  pub fn matches(&self, session: &pingora::proxy::Session, proxy_ctx: &mut ProxyCtx) -> bool {
     self.matcher.matches(session, proxy_ctx)
   }
 

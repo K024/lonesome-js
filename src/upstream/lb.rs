@@ -45,7 +45,9 @@ pub fn build_load_balancer(
 
   for (idx, upstream) in upstreams.iter().enumerate() {
     let backend = match upstream {
-      UpstreamEndpoint::Tcp { address, weight, .. } => {
+      UpstreamEndpoint::Tcp {
+        address, weight, ..
+      } => {
         let mut ext = Extensions::new();
         ext.insert(EndpointIndex(idx));
 

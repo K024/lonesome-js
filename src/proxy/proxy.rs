@@ -2,8 +2,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use pingora::cache::{
-  key::HashBinary, CacheKey, CacheMeta, ForcedFreshness, HitHandler, NoCacheReason,
-  RespCacheable,
+  key::HashBinary, CacheKey, CacheMeta, ForcedFreshness, HitHandler, NoCacheReason, RespCacheable,
 };
 use pingora::http::{RequestHeader, ResponseHeader};
 use pingora::protocols::Digest;
@@ -124,7 +123,11 @@ impl ProxyHttp for DenaliProxy {
   //   Ok(())
   // }
 
-  async fn proxy_upstream_filter(&self, session: &mut Session, ctx: &mut Self::CTX) -> Result<bool> {
+  async fn proxy_upstream_filter(
+    &self,
+    session: &mut Session,
+    ctx: &mut Self::CTX,
+  ) -> Result<bool> {
     let Some(route) = Self::current_route(ctx) else {
       return Ok(true);
     };
@@ -155,7 +158,9 @@ impl ProxyHttp for DenaliProxy {
       )
     })?;
 
-    route.select_upstream_peer(ctx).map_err(Self::map_upstream_error)
+    route
+      .select_upstream_peer(ctx)
+      .map_err(Self::map_upstream_error)
   }
 
   async fn connected_to_upstream(
@@ -369,7 +374,6 @@ impl ProxyHttp for DenaliProxy {
   //   Ok(replacement)
   // }
 
-
   // cache callbacks
 
   fn request_cache_filter(&self, session: &mut Session, ctx: &mut Self::CTX) -> Result<()> {
@@ -457,10 +461,12 @@ impl ProxyHttp for DenaliProxy {
     ctx: &mut Self::CTX,
   ) -> Result<bool> {
     let Some(cache) = Self::current_cache_handler(ctx) else {
-      return Ok(pingora::protocols::http::conditional_filter::not_modified_filter(
-        session.req_header(),
-        resp,
-      ));
+      return Ok(
+        pingora::protocols::http::conditional_filter::not_modified_filter(
+          session.req_header(),
+          resp,
+        ),
+      );
     };
 
     cache
@@ -485,10 +491,9 @@ impl ProxyHttp for DenaliProxy {
     if let Some(cache) = Self::current_cache_handler(ctx) {
       return cache.is_purge(session, ctx);
     }
-    
+
     false
   }
-
 
   // error callbacks
 
