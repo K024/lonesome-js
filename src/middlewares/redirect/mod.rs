@@ -1,5 +1,4 @@
 use async_trait::async_trait;
-use bytes::Bytes;
 use cel::{Program, Value};
 use pingora::http::ResponseHeader;
 use pingora::proxy::Session;
@@ -161,10 +160,6 @@ impl Middleware for RedirectMiddleware {
       .write_response_header(Box::new(resp), true)
       .await
       .map_err(|e| format!("redirect write response failed: {e}"))?;
-    session
-      .write_response_body(Some(Bytes::new()), true)
-      .await
-      .map_err(|e| format!("redirect finalize response failed: {e}"))?;
 
     Ok(true)
   }

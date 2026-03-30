@@ -1,5 +1,4 @@
 use async_trait::async_trait;
-use bytes::Bytes;
 use cel::{Program, Value};
 use pingora::http::ResponseHeader;
 use pingora::proxy::Session;
@@ -12,7 +11,8 @@ use crate::proxy::ctx::ProxyCtx;
 #[derive(Clone, Debug, Deserialize)]
 pub struct RedirectHttpsConfig {
   pub code: Option<u16>,
-  pub https_port: Option<u16>,
+  pub port: Option<u16>,
+  pub to_http: Option<bool>,
   pub rule: Option<String>,
 }
 
@@ -32,7 +32,8 @@ impl RedirectHttpsConfig {
 
 pub struct RedirectHttpsMiddleware {
   code: u16,
-  https_port: Option<u16>,
+  port: Option<u16>,
+  to_http: bool,
   cel_program: Option<Program>,
 }
 
@@ -51,7 +52,8 @@ impl RedirectHttpsMiddleware {
 
     Ok(Self {
       code: cfg.code.unwrap_or(301),
-      https_port: cfg.https_port,
+      port: cfg.port,
+      to_http: cfg.to_http.unwrap_or(false),
       cel_program,
     })
   }
@@ -75,11 +77,16 @@ impl RedirectHttpsMiddleware {
       .map(|h| h.split(':').next().unwrap_or(h).to_string())
       .or_else(|| req.uri.authority().map(|a| a.host().to_string()))?;
 
-    let mut location = String::from("https://");
+    let mut location = if self.to_http {
+      String::from("http://")
+    } else {
+      String::from("https://")
+    };
     location.push_str(&host);
 
-    if let Some(port) = self.https_port {
-      if port != 443 {
+    if let Some(port) = self.port {
+      let target_port = if self.to_http { 80 } else { 443 };
+      if port != target_port {
         location.push(':');
         location.push_str(&port.to_string());
       }
@@ -88,6 +95,28 @@ impl RedirectHttpsMiddleware {
     location.push_str(req.uri.path_and_query().map(|v| v.as_str()).unwrap_or("/"));
 
     Some(location)
+  }
+
+  fn request_scheme(&self, session: &Session) -> &'static str {
+    if let Some(s) = session.req_header().uri.scheme_str() {
+      if s.eq_ignore_ascii_case("https") {
+        return "https";
+      }
+      if s.eq_ignore_ascii_case("http") {
+        return "http";
+      }
+    }
+
+    if session
+      .as_downstream()
+      .digest()
+      .and_then(|d| d.ssl_digest.as_ref())
+      .is_some()
+    {
+      "https"
+    } else {
+      "http"
+    }
   }
 }
 
@@ -99,6 +128,11 @@ impl Middleware for RedirectHttpsMiddleware {
     session: &mut Session,
   ) -> Result<bool, String> {
     if !self.should_apply(proxy_ctx, session) {
+      return Ok(false);
+    }
+
+    let scheme = self.request_scheme(session);
+    if (!self.to_http && scheme == "https") || (self.to_http && scheme == "http") {
       return Ok(false);
     }
 
@@ -119,10 +153,6 @@ impl Middleware for RedirectHttpsMiddleware {
       .write_response_header(Box::new(resp), true)
       .await
       .map_err(|e| format!("redirect_https write response failed: {e}"))?;
-    session
-      .write_response_body(Some(Bytes::new()), true)
-      .await
-      .map_err(|e| format!("redirect_https finalize response failed: {e}"))?;
 
     Ok(true)
   }

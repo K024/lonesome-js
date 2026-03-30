@@ -16,6 +16,7 @@ pub struct CorsConfig {
   pub expose_headers: Option<String>,
   pub allow_credentials: Option<bool>,
   pub max_age_secs: Option<u64>,
+  pub reflect_host: Option<bool>,
   pub rule: Option<String>,
 }
 
@@ -38,6 +39,7 @@ pub struct CorsMiddleware {
   expose_headers: Option<String>,
   allow_credentials: bool,
   max_age_secs: Option<u64>,
+  reflect_host: bool,
   cel_program: Option<Program>,
 }
 
@@ -63,6 +65,7 @@ impl CorsMiddleware {
       expose_headers: cfg.expose_headers,
       allow_credentials: cfg.allow_credentials.unwrap_or(false),
       max_age_secs: cfg.max_age_secs,
+      reflect_host: cfg.reflect_host.unwrap_or(false),
       cel_program,
     })
   }
@@ -76,10 +79,38 @@ impl CorsMiddleware {
     matches!(program.execute(ctx), Ok(Value::Bool(true)))
   }
 
-  fn apply_headers(&self, resp: &mut ResponseHeader) -> Result<(), String> {
+  fn resolve_allow_origin(&self, session: &Session) -> Option<String> {
+    match self.allow_origin.as_str() {
+      "*" => {
+        if self.reflect_host {
+          let req = session.req_header();
+          let host = req
+            .headers
+            .get("host")
+            .and_then(|v| v.to_str().ok())
+            .or_else(|| req.uri.authority().map(|a| a.as_str()))?;
+
+          return Some(format!("{}://{}", "https", host));
+        }
+        None
+      }
+      default => Some(default.to_string()),
+    }
+  }
+
+  fn apply_headers(&self, session: &Session, resp: &mut ResponseHeader) -> Result<(), String> {
+    let allow_origin = self
+      .resolve_allow_origin(session)
+      .unwrap_or_else(|| "*".to_string());
+
     resp
-      .insert_header("access-control-allow-origin", self.allow_origin.as_str())
+      .insert_header("access-control-allow-origin", allow_origin.as_str())
       .map_err(|e| format!("cors insert allow-origin failed: {e}"))?;
+    if self.reflect_host {
+      resp
+        .append_header("vary", "host")
+        .map_err(|e| format!("cors append vary host failed: {e}"))?;
+    }
     resp
       .insert_header("access-control-allow-methods", self.allow_methods.as_str())
       .map_err(|e| format!("cors insert allow-methods failed: {e}"))?;
@@ -126,7 +157,7 @@ impl Middleware for CorsMiddleware {
 
     let mut resp = ResponseHeader::build(204, Some(8))
       .map_err(|e| format!("cors create preflight response failed: {e}"))?;
-    self.apply_headers(&mut resp)?;
+    self.apply_headers(session, &mut resp)?;
     resp
       .insert_header("content-length", "0")
       .map_err(|e| format!("cors insert content-length failed: {e}"))?;
@@ -149,6 +180,6 @@ impl Middleware for CorsMiddleware {
       return Ok(());
     }
 
-    self.apply_headers(upstream_response)
+    self.apply_headers(session, upstream_response)
   }
 }

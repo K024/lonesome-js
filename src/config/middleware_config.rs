@@ -9,6 +9,7 @@ impl MiddlewareConfig {
   pub fn validate(&self) -> Result<(), String> {
     match &self.r#type {
       MiddlewareType::RewriteMethod(cfg) => cfg.validate(),
+      MiddlewareType::BasicAuth(cfg) => cfg.validate(),
       MiddlewareType::RequestHeaders(cfg) => cfg.validate(),
       MiddlewareType::ResponseHeaders(cfg) => cfg.validate(),
       MiddlewareType::Compression(cfg) => cfg.validate(),
@@ -17,6 +18,7 @@ impl MiddlewareConfig {
       MiddlewareType::Respond(cfg) => cfg.validate(),
       MiddlewareType::Redirect(cfg) => cfg.validate(),
       MiddlewareType::RedirectHttps(cfg) => cfg.validate(),
+      MiddlewareType::RateLimit(cfg) => cfg.validate(),
       MiddlewareType::Cors(cfg) => cfg.validate(),
     }
   }

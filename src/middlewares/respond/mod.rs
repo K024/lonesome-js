@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use cel::{Program, Value};
 use pingora::http::ResponseHeader;
-use pingora::proxy::{FailToProxy, Session};
+use pingora::proxy::Session;
 use serde::Deserialize;
 
 use crate::matcher::cel_session_context::ensure_context;
@@ -12,6 +12,7 @@ use crate::proxy::ctx::ProxyCtx;
 #[derive(Clone, Debug, Deserialize)]
 pub struct RespondConfig {
   pub status: u16,
+  pub content_type: Option<String>,
   pub body: Option<String>,
   pub rule: Option<String>,
 }
@@ -27,6 +28,7 @@ impl RespondConfig {
 
 pub struct RespondMiddleware {
   status: u16,
+  content_type: Option<String>,
   body: Option<String>,
   cel_program: Option<Program>,
 }
@@ -46,6 +48,7 @@ impl RespondMiddleware {
 
     Ok(Self {
       status: cfg.status,
+      content_type: cfg.content_type,
       body: cfg.body,
       cel_program,
     })
@@ -72,40 +75,41 @@ impl Middleware for RespondMiddleware {
       return Ok(false);
     }
 
-    if let Some(body) = &self.body {
-      let mut resp = ResponseHeader::build(self.status, Some(2))
-        .map_err(|e| format!("respond create response header failed: {e}"))?;
-      resp
-        .insert_header("content-type", "text/plain; charset=utf-8")
-        .map_err(|e| format!("respond insert content-type failed: {e}"))?;
-      resp
-        .insert_header("content-length", body.len().to_string())
-        .map_err(|e| format!("respond insert content-length failed: {e}"))?;
+    let body_bytes = self
+      .body
+      .as_ref()
+      .map(|v| Bytes::copy_from_slice(v.as_bytes()))
+      .unwrap_or_default();
 
+    let mut resp = ResponseHeader::build(self.status, Some(4))
+      .map_err(|e| format!("respond create response header failed: {e}"))?;
+
+    if !body_bytes.is_empty() {
+      let content_type = self
+        .content_type
+        .as_deref()
+        .unwrap_or("text/plain; charset=utf-8");
+      resp
+        .insert_header("content-type", content_type)
+        .map_err(|e| format!("respond insert content-type failed: {e}"))?;
+    }
+
+    resp
+      .insert_header("content-length", body_bytes.len().to_string())
+      .map_err(|e| format!("respond insert content-length failed: {e}"))?;
+
+    session
+      .write_response_header(Box::new(resp), body_bytes.is_empty())
+      .await
+      .map_err(|e| format!("respond write response header failed: {e}"))?;
+
+    if !body_bytes.is_empty() {
       session
-        .write_response_header(Box::new(resp), false)
-        .await
-        .map_err(|e| format!("respond write response header failed: {e}"))?;
-      session
-        .write_response_body(Some(Bytes::copy_from_slice(body.as_bytes())), true)
+        .write_response_body(Some(body_bytes), true)
         .await
         .map_err(|e| format!("respond write response body failed: {e}"))?;
-    } else {
-      session
-        .respond_error(self.status)
-        .await
-        .map_err(|e| format!("respond write error response failed: {e}"))?;
     }
 
     Ok(true)
-  }
-
-  async fn fail_to_proxy(
-    &self,
-    _proxy_ctx: &mut ProxyCtx,
-    _session: &mut Session,
-    _error: &pingora::Error,
-  ) -> Result<Option<FailToProxy>, String> {
-    Ok(None)
   }
 }
