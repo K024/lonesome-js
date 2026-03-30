@@ -244,18 +244,17 @@ impl L4Connect for VirtualJsConnector {
   }
 }
 
-pub fn virtual_open_connection(key: &str, tls: bool, sni: String) -> Result<HttpPeer, String> {
-  let listener_exists = registry()
-    .listener(key)
-    .map_err(|_| "virtual listeners rwlock poisoned".to_string())?
-    .is_some();
-
-  if !listener_exists {
-    return Err(format!("virtual listener '{key}' not found"));
-  }
-
+pub fn virtual_open_connection(
+  key: &str,
+  tls: bool,
+  h2c: bool,
+  sni: String,
+) -> Result<HttpPeer, String> {
   let mut peer = HttpPeer::new("127.0.0.1:1", tls, sni);
   let mut options = PeerOptions::new();
+  if !tls && h2c {
+    options.set_http_version(2, 2);
+  }
   options.custom_l4 = Some(Arc::new(VirtualJsConnector::new(key.to_string())));
   peer.options = options;
   Ok(peer)

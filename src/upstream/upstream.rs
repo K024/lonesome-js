@@ -15,6 +15,7 @@ pub enum UpstreamEndpoint {
   Tcp {
     address: String,
     tls: bool,
+    h2c: bool,
     sni: String,
     weight: u32,
   },
@@ -22,12 +23,14 @@ pub enum UpstreamEndpoint {
   Unix {
     path: String,
     tls: bool,
+    h2c: bool,
     sni: String,
     weight: u32,
   },
   VirtualJs {
     key: String,
     tls: bool,
+    h2c: bool,
     sni: String,
     weight: u32,
   },
@@ -55,6 +58,7 @@ impl UpstreamPool {
         UpstreamAddressConfig::Tcp(address) => UpstreamEndpoint::Tcp {
           address: address.clone(),
           tls: cfg.tls,
+          h2c: cfg.h2c.unwrap_or(false),
           sni: cfg.sni.clone().unwrap_or_default(),
           weight: cfg.weight,
         },
@@ -62,12 +66,14 @@ impl UpstreamPool {
         UpstreamAddressConfig::Unix(path) => UpstreamEndpoint::Unix {
           path: path.clone(),
           tls: cfg.tls,
+          h2c: cfg.h2c.unwrap_or(false),
           sni: cfg.sni.clone().unwrap_or_default(),
           weight: cfg.weight,
         },
         UpstreamAddressConfig::VirtualJs(key) => UpstreamEndpoint::VirtualJs {
           key: key.clone(),
           tls: cfg.tls,
+          h2c: cfg.h2c.unwrap_or(false),
           sni: cfg.sni.clone().unwrap_or_default(),
           weight: cfg.weight,
         },
@@ -171,14 +177,37 @@ impl UpstreamPool {
   fn peer_from_endpoint(&self, endpoint: &UpstreamEndpoint) -> Result<Box<HttpPeer>, String> {
     match endpoint {
       UpstreamEndpoint::Tcp {
-        address, tls, sni, ..
-      } => Ok(Box::new(HttpPeer::new(address, *tls, sni.clone()))),
+        address,
+        tls,
+        h2c,
+        sni,
+        ..
+      } => {
+        let mut peer = HttpPeer::new(address, *tls, sni.clone());
+        if !*tls && *h2c {
+          peer.options.set_http_version(2, 2);
+        }
+        Ok(Box::new(peer))
+      }
       #[cfg(unix)]
-      UpstreamEndpoint::Unix { path, tls, sni, .. } => HttpPeer::new_uds(path, *tls, sni.clone())
-        .map(Box::new)
-        .map_err(|e| format!("failed to create uds peer: {e}")),
-      UpstreamEndpoint::VirtualJs { key, tls, sni, .. } => {
-        let peer = virtual_open_connection(key, *tls, sni.clone())?;
+      UpstreamEndpoint::Unix {
+        path,
+        tls,
+        h2c,
+        sni,
+        ..
+      } => {
+        let mut peer = HttpPeer::new_uds(path, *tls, sni.clone())
+          .map_err(|e| format!("failed to create uds peer: {e}"))?;
+        if !*tls && *h2c {
+          peer.options.set_http_version(2, 2);
+        }
+        Ok(Box::new(peer))
+      }
+      UpstreamEndpoint::VirtualJs {
+        key, tls, h2c, sni, ..
+      } => {
+        let peer = virtual_open_connection(key, *tls, *h2c, sni.clone())?;
         Ok(Box::new(peer))
       }
     }

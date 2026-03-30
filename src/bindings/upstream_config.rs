@@ -16,6 +16,8 @@ pub struct NapiUpstreamConfig {
   pub kind: Option<String>,
   pub address: String,
   pub tls: Option<bool>,
+  #[napi(js_name = "h2c")]
+  pub h2_c: Option<bool>,
   pub sni: Option<String>,
   pub weight: Option<u32>,
 }
@@ -53,6 +55,7 @@ impl TryFrom<NapiUpstreamConfig> for UpstreamConfig {
     Ok(UpstreamConfig {
       address,
       tls: value.tls.unwrap_or(false),
+      h2c: value.h2_c,
       sni: value.sni,
       weight: value.weight.unwrap_or(1),
     })

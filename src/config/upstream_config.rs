@@ -10,6 +10,7 @@ pub enum UpstreamAddressConfig {
 pub struct UpstreamConfig {
   pub address: UpstreamAddressConfig,
   pub tls: bool,
+  pub h2c: Option<bool>,
   pub sni: Option<String>,
   pub weight: u32,
 }
