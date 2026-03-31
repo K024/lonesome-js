@@ -11,6 +11,7 @@ use pingora::upstreams::peer::HttpPeer;
 use pingora::{Error, ErrorType, Result};
 
 use crate::matcher::cel_session_context::ensure_session_cel_context;
+use crate::middlewares::middleware::middleware_internal_error;
 use crate::proxy::cache::{build_cache_key, ProxyCacheHandler};
 use crate::proxy::ctx::ProxyCtx;
 use crate::route::{Route, SharedRouteTable};
@@ -23,14 +24,6 @@ pub struct DenaliProxy {
 impl DenaliProxy {
   pub fn new(routes: SharedRouteTable) -> Self {
     Self { routes }
-  }
-
-  fn map_middleware_error(phase: &'static str, err: String) -> Box<Error> {
-    pingora::Error::because(
-      ErrorType::HTTPStatus(500),
-      phase,
-      std::io::Error::other(err),
-    )
   }
 
   fn map_upstream_error(err: String) -> Box<Error> {
@@ -74,10 +67,7 @@ impl ProxyHttp for DenaliProxy {
 
     if let Some(route) = Self::current_route(ctx) {
       for middleware in route.middlewares() {
-        middleware
-          .early_request_filter(ctx, session)
-          .await
-          .map_err(|e| Self::map_middleware_error("middleware early_request_filter failed", e))?;
+        middleware.early_request_filter(ctx, session).await?;
       }
     }
 
@@ -90,11 +80,7 @@ impl ProxyHttp for DenaliProxy {
     };
 
     for middleware in route.middlewares() {
-      if middleware
-        .request_filter(ctx, session)
-        .await
-        .map_err(|e| Self::map_middleware_error("middleware request_filter failed", e))?
-      {
+      if middleware.request_filter(ctx, session).await? {
         return Ok(true);
       }
     }
@@ -133,11 +119,7 @@ impl ProxyHttp for DenaliProxy {
     };
 
     for middleware in route.middlewares() {
-      if !middleware
-        .proxy_upstream_filter(ctx, session)
-        .await
-        .map_err(|e| Self::map_middleware_error("middleware proxy_upstream_filter failed", e))?
-      {
+      if !middleware.proxy_upstream_filter(ctx, session).await? {
         return Ok(false);
       }
     }
@@ -180,8 +162,7 @@ impl ProxyHttp for DenaliProxy {
     for middleware in route.middlewares() {
       middleware
         .connected_to_upstream(ctx, session, reused, peer, digest)
-        .await
-        .map_err(|e| Self::map_middleware_error("middleware connected_to_upstream failed", e))?;
+        .await?;
     }
 
     Ok(())
@@ -206,11 +187,8 @@ impl ProxyHttp for DenaliProxy {
           err = next;
         }
         Err(mw_err) => {
-          err = pingora::Error::because(
-            ErrorType::InternalError,
-            "middleware fail_to_connect hook error",
-            std::io::Error::other(mw_err),
-          );
+          err =
+            middleware_internal_error("middleware fail_to_connect hook error", mw_err.to_string());
         }
       }
     }
@@ -230,8 +208,7 @@ impl ProxyHttp for DenaliProxy {
     for middleware in route.middlewares() {
       middleware
         .upstream_request_filter(ctx, session, upstream_request)
-        .await
-        .map_err(|e| Self::map_middleware_error("middleware upstream_request_filter failed", e))?;
+        .await?;
     }
 
     Ok(())
@@ -250,8 +227,7 @@ impl ProxyHttp for DenaliProxy {
     for middleware in route.middlewares() {
       middleware
         .upstream_response_filter(ctx, session, upstream_response)
-        .await
-        .map_err(|e| Self::map_middleware_error("middleware upstream_response_filter failed", e))?;
+        .await?;
     }
 
     Ok(())
@@ -264,9 +240,7 @@ impl ProxyHttp for DenaliProxy {
     ctx: &mut Self::CTX,
   ) -> Result<()> {
     if let Some(cache) = Self::current_cache_handler(ctx) {
-      cache
-        .response_filter(session, upstream_response, ctx)
-        .map_err(|e| Self::map_middleware_error("cache response_filter failed", e))?;
+      cache.response_filter(session, upstream_response, ctx)?;
     }
 
     let Some(route) = Self::current_route(ctx) else {
@@ -276,8 +250,7 @@ impl ProxyHttp for DenaliProxy {
     for middleware in route.middlewares() {
       middleware
         .response_filter(ctx, session, upstream_response)
-        .await
-        .map_err(|e| Self::map_middleware_error("middleware response_filter failed", e))?;
+        .await?;
     }
 
     Ok(())
@@ -381,9 +354,7 @@ impl ProxyHttp for DenaliProxy {
       return Ok(());
     };
 
-    cache
-      .request_cache_filter(session, ctx)
-      .map_err(|e| Self::map_middleware_error("cache request_cache_filter failed", e))
+    cache.request_cache_filter(session, ctx)
   }
 
   fn cache_key_callback(&self, session: &Session, ctx: &mut Self::CTX) -> Result<CacheKey> {
@@ -395,10 +366,7 @@ impl ProxyHttp for DenaliProxy {
       ));
     };
 
-    cache
-      .cache_key_callback(session, ctx)
-      .map(build_cache_key)
-      .map_err(|e| Self::map_middleware_error("cache cache_key_callback failed", e))
+    cache.cache_key_callback(session, ctx).map(build_cache_key)
   }
 
   fn cache_miss(&self, session: &mut Session, ctx: &mut Self::CTX) {
@@ -421,9 +389,7 @@ impl ProxyHttp for DenaliProxy {
       return Ok(None);
     };
 
-    cache
-      .cache_hit_filter(session, meta, hit_handler, is_fresh, ctx)
-      .map_err(|e| Self::map_middleware_error("cache cache_hit_filter failed", e))
+    cache.cache_hit_filter(session, meta, hit_handler, is_fresh, ctx)
   }
 
   fn response_cache_filter(
@@ -436,9 +402,7 @@ impl ProxyHttp for DenaliProxy {
       return Ok(RespCacheable::Uncacheable(NoCacheReason::Custom("default")));
     };
 
-    cache
-      .response_cache_filter(session, resp, ctx)
-      .map_err(|e| Self::map_middleware_error("cache response_cache_filter failed", e))
+    cache.response_cache_filter(session, resp, ctx)
   }
 
   fn cache_vary_filter(
@@ -469,9 +433,7 @@ impl ProxyHttp for DenaliProxy {
       );
     };
 
-    cache
-      .cache_not_modified_filter(session, resp, ctx)
-      .map_err(|e| Self::map_middleware_error("cache cache_not_modified_filter failed", e))
+    cache.cache_not_modified_filter(session, resp, ctx)
   }
 
   fn should_serve_stale(
@@ -518,10 +480,9 @@ impl ProxyHttp for DenaliProxy {
             err = next;
           }
           Err(mw_err) => {
-            err = pingora::Error::because(
-              ErrorType::InternalError,
+            err = middleware_internal_error(
               "middleware error_while_proxy hook error",
-              std::io::Error::other(mw_err),
+              mw_err.to_string(),
             );
           }
         }

@@ -6,9 +6,11 @@ use base64::Engine;
 use cel::{Program, Value};
 use pingora::http::ResponseHeader;
 use pingora::proxy::Session;
+use pingora::Result;
 use serde::Deserialize;
 
 use crate::matcher::cel_session_context::ensure_context;
+use crate::middlewares::middleware::middleware_internal_error;
 use crate::middlewares::Middleware;
 use crate::proxy::ctx::ProxyCtx;
 
@@ -84,23 +86,25 @@ impl BasicAuthMiddleware {
     matches!(program.execute(ctx), Ok(Value::Bool(true)))
   }
 
-  async fn issue_challenge(&self, session: &mut Session) -> Result<bool, String> {
+  async fn issue_challenge(&self, session: &mut Session) -> Result<bool> {
     let mut resp = ResponseHeader::build(401, Some(3))
-      .map_err(|e| format!("basic_auth build 401 failed: {e}"))?;
+      .map_err(|e| middleware_internal_error("basic_auth build 401 failed", e.to_string()))?;
     resp
       .insert_header(
         "WWW-Authenticate",
         format!("Basic realm=\"{}\", charset=\"UTF-8\"", self.realm),
       )
-      .map_err(|e| format!("basic_auth insert www-authenticate failed: {e}"))?;
-    resp
-      .insert_header("Content-Length", "0")
-      .map_err(|e| format!("basic_auth insert content-length failed: {e}"))?;
+      .map_err(|e| {
+        middleware_internal_error("basic_auth insert www-authenticate failed", e.to_string())
+      })?;
+    resp.insert_header("Content-Length", "0").map_err(|e| {
+      middleware_internal_error("basic_auth insert content-length failed", e.to_string())
+    })?;
 
     session
       .write_response_header(Box::new(resp), true)
       .await
-      .map_err(|e| format!("basic_auth write 401 failed: {e}"))?;
+      .map_err(|e| middleware_internal_error("basic_auth write 401 failed", e.to_string()))?;
 
     Ok(true)
   }
@@ -124,7 +128,7 @@ impl BasicAuthMiddleware {
     )
   }
 
-  async fn authenticate(&self, session: &mut Session) -> Result<bool, String> {
+  async fn authenticate(&self, session: &mut Session) -> Result<bool> {
     let auth_value = session
       .req_header()
       .headers
@@ -151,11 +155,7 @@ impl BasicAuthMiddleware {
 
 #[async_trait]
 impl Middleware for BasicAuthMiddleware {
-  async fn request_filter(
-    &self,
-    proxy_ctx: &mut ProxyCtx,
-    session: &mut Session,
-  ) -> Result<bool, String> {
+  async fn request_filter(&self, proxy_ctx: &mut ProxyCtx, session: &mut Session) -> Result<bool> {
     if !self.should_apply(proxy_ctx, session) {
       return Ok(false);
     }

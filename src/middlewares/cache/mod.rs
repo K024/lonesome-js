@@ -4,6 +4,7 @@ mod handler;
 use async_trait::async_trait;
 use cel::{Program, Value};
 use pingora::proxy::Session;
+use pingora::Result;
 use serde::Deserialize;
 
 use crate::matcher::cel_session_context::ensure_context;
@@ -76,7 +77,7 @@ impl Middleware for CacheMiddleware {
     &self,
     proxy_ctx: &mut ProxyCtx,
     session: &mut Session,
-  ) -> Result<(), String> {
+  ) -> Result<()> {
     if !self.should_apply(proxy_ctx, session) {
       return Ok(());
     }

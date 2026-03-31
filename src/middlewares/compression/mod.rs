@@ -3,9 +3,11 @@ use cel::{Program, Value};
 use pingora::modules::http::compression::ResponseCompression;
 use pingora::protocols::http::compression::Algorithm;
 use pingora::proxy::Session;
+use pingora::Result;
 use serde::Deserialize;
 
 use crate::matcher::cel_session_context::ensure_context;
+use crate::middlewares::middleware::middleware_internal_error;
 use crate::middlewares::Middleware;
 use crate::proxy::ctx::ProxyCtx;
 
@@ -74,12 +76,15 @@ impl CompressionMiddleware {
     matches!(program.execute(ctx), Ok(Value::Bool(true)))
   }
 
-  fn apply_downstream(&self, session: &mut Session) -> Result<(), String> {
+  fn apply_downstream(&self, session: &mut Session) -> Result<()> {
     let Some(compression) = session
       .downstream_modules_ctx
       .get_mut::<ResponseCompression>()
     else {
-      return Err("downstream compression module is not initialized".to_string());
+      return Err(middleware_internal_error(
+        "compression downstream module missing",
+        "downstream compression module is not initialized",
+      ));
     };
 
     if let Some(level) = self.cfg.gzip {
@@ -114,7 +119,7 @@ impl Middleware for CompressionMiddleware {
     &self,
     proxy_ctx: &mut ProxyCtx,
     session: &mut Session,
-  ) -> Result<(), String> {
+  ) -> Result<()> {
     if !self.should_apply(proxy_ctx, session) {
       return Ok(());
     }

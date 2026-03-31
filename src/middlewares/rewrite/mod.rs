@@ -1,9 +1,11 @@
 use async_trait::async_trait;
 use cel::{Program, Value};
 use pingora::proxy::Session;
+use pingora::Result;
 use serde::Deserialize;
 
 use crate::matcher::cel_session_context::ensure_context;
+use crate::middlewares::middleware::middleware_internal_error;
 use crate::middlewares::Middleware;
 use crate::proxy::ctx::ProxyCtx;
 
@@ -119,11 +121,7 @@ impl RewriteMiddleware {
 
 #[async_trait]
 impl Middleware for RewriteMiddleware {
-  async fn request_filter(
-    &self,
-    proxy_ctx: &mut ProxyCtx,
-    session: &mut Session,
-  ) -> Result<bool, String> {
+  async fn request_filter(&self, proxy_ctx: &mut ProxyCtx, session: &mut Session) -> Result<bool> {
     if !self.should_apply(proxy_ctx, session) {
       return Ok(false);
     }
@@ -159,7 +157,7 @@ impl Middleware for RewriteMiddleware {
     let uri = builder
       .path_and_query(path)
       .build()
-      .map_err(|e| format!("rewrite builds invalid uri: {e}"))?;
+      .map_err(|e| middleware_internal_error("rewrite builds invalid uri", e.to_string()))?;
 
     session.as_downstream_mut().req_header_mut().set_uri(uri);
     Ok(false)

@@ -2,9 +2,11 @@ use async_trait::async_trait;
 use cel::{Program, Value};
 use pingora::http::ResponseHeader;
 use pingora::proxy::Session;
+use pingora::Result;
 use serde::Deserialize;
 
 use crate::matcher::cel_session_context::ensure_context;
+use crate::middlewares::middleware::middleware_internal_error;
 use crate::middlewares::Middleware;
 use crate::proxy::ctx::ProxyCtx;
 
@@ -122,11 +124,7 @@ impl RedirectHttpsMiddleware {
 
 #[async_trait]
 impl Middleware for RedirectHttpsMiddleware {
-  async fn request_filter(
-    &self,
-    proxy_ctx: &mut ProxyCtx,
-    session: &mut Session,
-  ) -> Result<bool, String> {
+  async fn request_filter(&self, proxy_ctx: &mut ProxyCtx, session: &mut Session) -> Result<bool> {
     if !self.should_apply(proxy_ctx, session) {
       return Ok(false);
     }
@@ -140,19 +138,25 @@ impl Middleware for RedirectHttpsMiddleware {
       return Ok(false);
     };
 
-    let mut resp = ResponseHeader::build(self.code, Some(2))
-      .map_err(|e| format!("redirect_https create response header failed: {e}"))?;
-    resp
-      .insert_header("Location", location)
-      .map_err(|e| format!("redirect_https insert location failed: {e}"))?;
-    resp
-      .insert_header("Content-Length", "0")
-      .map_err(|e| format!("redirect_https insert content-length failed: {e}"))?;
+    let mut resp = ResponseHeader::build(self.code, Some(2)).map_err(|e| {
+      middleware_internal_error(
+        "redirect_https create response header failed",
+        e.to_string(),
+      )
+    })?;
+    resp.insert_header("Location", location).map_err(|e| {
+      middleware_internal_error("redirect_https insert location failed", e.to_string())
+    })?;
+    resp.insert_header("Content-Length", "0").map_err(|e| {
+      middleware_internal_error("redirect_https insert content-length failed", e.to_string())
+    })?;
 
     session
       .write_response_header(Box::new(resp), true)
       .await
-      .map_err(|e| format!("redirect_https write response failed: {e}"))?;
+      .map_err(|e| {
+        middleware_internal_error("redirect_https write response failed", e.to_string())
+      })?;
 
     Ok(true)
   }

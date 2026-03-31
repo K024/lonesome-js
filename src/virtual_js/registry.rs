@@ -250,7 +250,8 @@ pub fn virtual_open_connection(
   h2c: bool,
   sni: String,
 ) -> Result<HttpPeer, String> {
-  let mut peer = HttpPeer::new("127.0.0.1:1", tls, sni);
+  let mut peer =
+    HttpPeer::new_uds(key, tls, sni).map_err(|e| format!("failed to create uds peer: {e}"))?;
   let mut options = PeerOptions::new();
   if !tls && h2c {
     options.set_http_version(2, 2);

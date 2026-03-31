@@ -2,9 +2,11 @@ use async_trait::async_trait;
 use cel::{Program, Value};
 use pingora::http::RequestHeader;
 use pingora::proxy::Session;
+use pingora::Result;
 use serde::Deserialize;
 
 use crate::matcher::cel_session_context::ensure_context;
+use crate::middlewares::middleware::middleware_internal_error;
 use crate::middlewares::Middleware;
 use crate::proxy::ctx::ProxyCtx;
 
@@ -97,20 +99,22 @@ impl RequestHeadersMiddleware {
     matches!(program.execute(ctx), Ok(Value::Bool(true)))
   }
 
-  fn apply(&self, upstream_request: &mut RequestHeader) -> Result<(), String> {
+  fn apply(&self, upstream_request: &mut RequestHeader) -> Result<()> {
     match &self.action {
       RequestHeadersAction::Append { value } => upstream_request
         .append_header(self.name.clone(), value.clone())
         .map(|_| ())
-        .map_err(|e| format!("request_headers append failed: {e}")),
+        .map_err(|e| middleware_internal_error("request_headers append failed", e.to_string())),
       RequestHeadersAction::Set { value } => upstream_request
         .insert_header(self.name.clone(), value.clone())
-        .map_err(|e| format!("request_headers set failed: {e}")),
+        .map_err(|e| middleware_internal_error("request_headers set failed", e.to_string())),
       RequestHeadersAction::SetDefault { value } => {
         if upstream_request.headers.get(self.name.as_str()).is_none() {
           upstream_request
             .insert_header(self.name.clone(), value.clone())
-            .map_err(|e| format!("request_headers set_default failed: {e}"))?;
+            .map_err(|e| {
+              middleware_internal_error("request_headers set_default failed", e.to_string())
+            })?;
         }
         Ok(())
       }
@@ -129,7 +133,7 @@ impl Middleware for RequestHeadersMiddleware {
     proxy_ctx: &mut ProxyCtx,
     session: &mut Session,
     upstream_request: &mut RequestHeader,
-  ) -> Result<(), String> {
+  ) -> Result<()> {
     if !self.should_apply(proxy_ctx, session) {
       return Ok(());
     }

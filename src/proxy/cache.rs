@@ -3,7 +3,7 @@ use pingora::cache::{
 };
 use pingora::http::{RequestHeader, ResponseHeader};
 use pingora::proxy::Session;
-use pingora::{Error, ErrorSource};
+use pingora::{Error, ErrorSource, Result};
 
 use crate::proxy::ctx::ProxyCtx;
 
@@ -15,15 +15,11 @@ pub struct CacheKeyParts {
 }
 
 pub trait ProxyCacheHandler: Send + Sync + 'static {
-  fn request_cache_filter(&self, _session: &mut Session, _ctx: &ProxyCtx) -> Result<(), String> {
+  fn request_cache_filter(&self, _session: &mut Session, _ctx: &ProxyCtx) -> Result<()> {
     Ok(())
   }
 
-  fn cache_key_callback(
-    &self,
-    _session: &Session,
-    _ctx: &ProxyCtx,
-  ) -> Result<CacheKeyParts, String>;
+  fn cache_key_callback(&self, _session: &Session, _ctx: &ProxyCtx) -> Result<CacheKeyParts>;
 
   fn cache_miss(&self, session: &mut Session, _ctx: &ProxyCtx) {
     session.cache.cache_miss();
@@ -36,7 +32,7 @@ pub trait ProxyCacheHandler: Send + Sync + 'static {
     _hit_handler: &mut HitHandler,
     _is_fresh: bool,
     _ctx: &ProxyCtx,
-  ) -> Result<Option<ForcedFreshness>, String> {
+  ) -> Result<Option<ForcedFreshness>> {
     Ok(None)
   }
 
@@ -45,7 +41,7 @@ pub trait ProxyCacheHandler: Send + Sync + 'static {
     _session: &Session,
     _resp: &ResponseHeader,
     _ctx: &ProxyCtx,
-  ) -> Result<RespCacheable, String> {
+  ) -> Result<RespCacheable> {
     Ok(RespCacheable::Uncacheable(NoCacheReason::Custom("default")))
   }
 
@@ -54,7 +50,7 @@ pub trait ProxyCacheHandler: Send + Sync + 'static {
     _session: &Session,
     _resp: &mut ResponseHeader,
     _ctx: &ProxyCtx,
-  ) -> Result<(), String> {
+  ) -> Result<()> {
     Ok(())
   }
 
@@ -72,7 +68,7 @@ pub trait ProxyCacheHandler: Send + Sync + 'static {
     session: &Session,
     resp: &ResponseHeader,
     _ctx: &ProxyCtx,
-  ) -> Result<bool, String> {
+  ) -> Result<bool> {
     Ok(
       pingora::protocols::http::conditional_filter::not_modified_filter(session.req_header(), resp),
     )

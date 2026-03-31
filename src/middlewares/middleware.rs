@@ -3,8 +3,20 @@ use pingora::http::{RequestHeader, ResponseHeader};
 use pingora::protocols::Digest;
 use pingora::proxy::{FailToProxy, Session};
 use pingora::upstreams::peer::HttpPeer;
+use pingora::{Error, ErrorType, Result};
 
 use crate::proxy::ctx::ProxyCtx;
+
+pub(crate) fn middleware_internal_error(
+  context: &'static str,
+  message: impl Into<String>,
+) -> Box<Error> {
+  Error::because(
+    ErrorType::InternalError,
+    context,
+    std::io::Error::other(message.into()),
+  )
+}
 
 #[async_trait]
 pub trait Middleware: Send + Sync {
@@ -13,7 +25,7 @@ pub trait Middleware: Send + Sync {
     &self,
     _proxy_ctx: &mut ProxyCtx,
     _session: &mut Session,
-  ) -> Result<(), String> {
+  ) -> Result<()> {
     Ok(())
   }
 
@@ -22,7 +34,7 @@ pub trait Middleware: Send + Sync {
     &self,
     _proxy_ctx: &mut ProxyCtx,
     _session: &mut Session,
-  ) -> Result<bool, String> {
+  ) -> Result<bool> {
     Ok(false)
   }
 
@@ -33,7 +45,7 @@ pub trait Middleware: Send + Sync {
   //   _session: &mut Session,
   //   _body: &mut Option<Bytes>,
   //   _end_of_stream: bool,
-  // ) -> Result<(), String> {
+  // ) -> Result<()> {
   //   Ok(())
   // }
 
@@ -42,7 +54,7 @@ pub trait Middleware: Send + Sync {
     &self,
     _proxy_ctx: &mut ProxyCtx,
     _session: &mut Session,
-  ) -> Result<bool, String> {
+  ) -> Result<bool> {
     Ok(true)
   }
 
@@ -52,7 +64,7 @@ pub trait Middleware: Send + Sync {
     _proxy_ctx: &mut ProxyCtx,
     _session: &mut Session,
     _upstream_request: &mut RequestHeader,
-  ) -> Result<(), String> {
+  ) -> Result<()> {
     Ok(())
   }
 
@@ -64,7 +76,7 @@ pub trait Middleware: Send + Sync {
     _reused: bool,
     _peer: &HttpPeer,
     _digest: Option<&Digest>,
-  ) -> Result<(), String> {
+  ) -> Result<()> {
     Ok(())
   }
 
@@ -74,8 +86,8 @@ pub trait Middleware: Send + Sync {
     _proxy_ctx: &mut ProxyCtx,
     _session: &mut Session,
     _peer: &HttpPeer,
-    error: Box<pingora::Error>,
-  ) -> Result<Box<pingora::Error>, String> {
+    error: Box<Error>,
+  ) -> Result<Box<Error>> {
     Ok(error)
   }
 
@@ -85,7 +97,7 @@ pub trait Middleware: Send + Sync {
     _proxy_ctx: &mut ProxyCtx,
     _session: &mut Session,
     _upstream_response: &mut ResponseHeader,
-  ) -> Result<(), String> {
+  ) -> Result<()> {
     Ok(())
   }
 
@@ -96,7 +108,7 @@ pub trait Middleware: Send + Sync {
   //   _session: &mut Session,
   //   _body: &mut Option<Bytes>,
   //   _end_of_stream: bool,
-  // ) -> Result<Option<Duration>, String> {
+  // ) -> Result<Option<Duration>> {
   //   Ok(None)
   // }
 
@@ -106,7 +118,7 @@ pub trait Middleware: Send + Sync {
   //   _proxy_ctx: &mut ProxyCtx,
   //   _session: &mut Session,
   //   _upstream_trailers: &mut HMap,
-  // ) -> Result<(), String> {
+  // ) -> Result<()> {
   //   Ok(())
   // }
 
@@ -116,7 +128,7 @@ pub trait Middleware: Send + Sync {
     _proxy_ctx: &mut ProxyCtx,
     _session: &mut Session,
     _upstream_response: &mut ResponseHeader,
-  ) -> Result<(), String> {
+  ) -> Result<()> {
     Ok(())
   }
 
@@ -127,7 +139,7 @@ pub trait Middleware: Send + Sync {
   //   _session: &mut Session,
   //   _body: &mut Option<Bytes>,
   //   _end_of_stream: bool,
-  // ) -> Result<Option<Duration>, String> {
+  // ) -> Result<Option<Duration>> {
   //   Ok(None)
   // }
 
@@ -137,7 +149,7 @@ pub trait Middleware: Send + Sync {
   //   _proxy_ctx: &mut ProxyCtx,
   //   _session: &mut Session,
   //   _upstream_trailers: &mut HMap,
-  // ) -> Result<Option<Bytes>, String> {
+  // ) -> Result<Option<Bytes>> {
   //   Ok(None)
   // }
 
@@ -147,9 +159,9 @@ pub trait Middleware: Send + Sync {
     _proxy_ctx: &mut ProxyCtx,
     _session: &mut Session,
     _peer: &HttpPeer,
-    error: Box<pingora::Error>,
+    error: Box<Error>,
     _client_reused: bool,
-  ) -> Result<Box<pingora::Error>, String> {
+  ) -> Result<Box<Error>> {
     Ok(error)
   }
 
@@ -158,8 +170,8 @@ pub trait Middleware: Send + Sync {
     &self,
     _proxy_ctx: &mut ProxyCtx,
     _session: &mut Session,
-    _error: &pingora::Error,
-  ) -> Result<Option<FailToProxy>, String> {
+    _error: &Error,
+  ) -> Result<Option<FailToProxy>> {
     Ok(None)
   }
 
@@ -168,8 +180,8 @@ pub trait Middleware: Send + Sync {
     &self,
     _proxy_ctx: &mut ProxyCtx,
     _session: &mut Session,
-    _error: Option<&pingora::Error>,
-  ) -> Result<(), String> {
+    _error: Option<&Error>,
+  ) -> Result<()> {
     Ok(())
   }
 }

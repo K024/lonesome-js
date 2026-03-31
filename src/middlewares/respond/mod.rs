@@ -3,9 +3,11 @@ use bytes::Bytes;
 use cel::{Program, Value};
 use pingora::http::ResponseHeader;
 use pingora::proxy::Session;
+use pingora::Result;
 use serde::Deserialize;
 
 use crate::matcher::cel_session_context::ensure_context;
+use crate::middlewares::middleware::middleware_internal_error;
 use crate::middlewares::Middleware;
 use crate::proxy::ctx::ProxyCtx;
 
@@ -66,11 +68,7 @@ impl RespondMiddleware {
 
 #[async_trait]
 impl Middleware for RespondMiddleware {
-  async fn request_filter(
-    &self,
-    proxy_ctx: &mut ProxyCtx,
-    session: &mut Session,
-  ) -> Result<bool, String> {
+  async fn request_filter(&self, proxy_ctx: &mut ProxyCtx, session: &mut Session) -> Result<bool> {
     if !self.should_apply(proxy_ctx, session) {
       return Ok(false);
     }
@@ -81,8 +79,9 @@ impl Middleware for RespondMiddleware {
       .map(|v| Bytes::copy_from_slice(v.as_bytes()))
       .unwrap_or_default();
 
-    let mut resp = ResponseHeader::build(self.status, Some(4))
-      .map_err(|e| format!("respond create response header failed: {e}"))?;
+    let mut resp = ResponseHeader::build(self.status, Some(4)).map_err(|e| {
+      middleware_internal_error("respond create response header failed", e.to_string())
+    })?;
 
     if !body_bytes.is_empty() {
       let content_type = self
@@ -91,23 +90,31 @@ impl Middleware for RespondMiddleware {
         .unwrap_or("text/plain; charset=utf-8");
       resp
         .insert_header("Content-Type", content_type)
-        .map_err(|e| format!("respond insert content-type failed: {e}"))?;
+        .map_err(|e| {
+          middleware_internal_error("respond insert content-type failed", e.to_string())
+        })?;
     }
 
     resp
       .insert_header("Content-Length", body_bytes.len().to_string())
-      .map_err(|e| format!("respond insert content-length failed: {e}"))?;
+      .map_err(|e| {
+        middleware_internal_error("respond insert content-length failed", e.to_string())
+      })?;
 
     session
       .write_response_header(Box::new(resp), body_bytes.is_empty())
       .await
-      .map_err(|e| format!("respond write response header failed: {e}"))?;
+      .map_err(|e| {
+        middleware_internal_error("respond write response header failed", e.to_string())
+      })?;
 
     if !body_bytes.is_empty() {
       session
         .write_response_body(Some(body_bytes), true)
         .await
-        .map_err(|e| format!("respond write response body failed: {e}"))?;
+        .map_err(|e| {
+          middleware_internal_error("respond write response body failed", e.to_string())
+        })?;
     }
 
     Ok(true)

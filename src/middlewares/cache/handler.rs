@@ -11,10 +11,12 @@ use pingora::cache::{
 };
 use pingora::http::{RequestHeader, ResponseHeader};
 use pingora::proxy::Session;
+use pingora::Result;
 use std::collections::HashMap;
 use std::sync::LazyLock;
 use std::sync::RwLock;
 
+use crate::middlewares::middleware::middleware_internal_error;
 use crate::proxy::cache::{CacheKeyParts, ProxyCacheHandler};
 use crate::proxy::ctx::ProxyCtx;
 
@@ -63,7 +65,7 @@ fn has_vary_star(resp: &ResponseHeader) -> bool {
 }
 
 impl ProxyCacheHandler for CacheHandler {
-  fn request_cache_filter(&self, session: &mut Session, _ctx: &ProxyCtx) -> Result<(), String> {
+  fn request_cache_filter(&self, session: &mut Session, _ctx: &ProxyCtx) -> Result<()> {
     let mut overrides = CacheOptionOverrides::default();
     overrides.wait_timeout = Some(Duration::from_secs(2));
 
@@ -89,7 +91,7 @@ impl ProxyCacheHandler for CacheHandler {
     session: &Session,
     resp: &mut ResponseHeader,
     _ctx: &ProxyCtx,
-  ) -> Result<(), String> {
+  ) -> Result<()> {
     if !self.inject_cache_headers {
       return Ok(());
     }
@@ -110,12 +112,12 @@ impl ProxyCacheHandler for CacheHandler {
 
     resp
       .insert_header("Cdn-Cache-Status", status)
-      .map_err(|e| format!("insert Cdn-Cache-Status failed: {e}"))?;
+      .map_err(|e| middleware_internal_error("insert Cdn-Cache-Status failed", e.to_string()))?;
 
     Ok(())
   }
 
-  fn cache_key_callback(&self, session: &Session, ctx: &ProxyCtx) -> Result<CacheKeyParts, String> {
+  fn cache_key_callback(&self, session: &Session, ctx: &ProxyCtx) -> Result<CacheKeyParts> {
     let req = session.req_header();
 
     let host = req
@@ -145,10 +147,15 @@ impl ProxyCacheHandler for CacheHandler {
     _hit_handler: &mut HitHandler,
     _is_fresh: bool,
     ctx: &ProxyCtx,
-  ) -> Result<Option<ForcedFreshness>, String> {
+  ) -> Result<Option<ForcedFreshness>> {
     let purge_at = NAMESPACE_PURGE_AT
       .read()
-      .map_err(|_| "cache purge map lock poisoned".to_string())?
+      .map_err(|_| {
+        middleware_internal_error(
+          "cache purge map read lock poisoned",
+          "cache purge map lock poisoned",
+        )
+      })?
       .get(&ctx.route_id)
       .copied();
 
@@ -166,7 +173,7 @@ impl ProxyCacheHandler for CacheHandler {
     session: &Session,
     resp: &ResponseHeader,
     _ctx: &ProxyCtx,
-  ) -> Result<RespCacheable, String> {
+  ) -> Result<RespCacheable> {
     if has_vary_star(resp) {
       return Ok(RespCacheable::Uncacheable(
         pingora::cache::NoCacheReason::OriginNotCache,

@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use cel::{Program, Value};
 use pingora::http::Method;
 use pingora::proxy::Session;
+use pingora::Result;
 use serde::Deserialize;
 
 use crate::matcher::cel_session_context::ensure_context;
@@ -66,11 +67,7 @@ impl RewriteMethodMiddleware {
 
 #[async_trait]
 impl Middleware for RewriteMethodMiddleware {
-  async fn request_filter(
-    &self,
-    proxy_ctx: &mut ProxyCtx,
-    session: &mut Session,
-  ) -> Result<bool, String> {
+  async fn request_filter(&self, proxy_ctx: &mut ProxyCtx, session: &mut Session) -> Result<bool> {
     if !self.should_apply(proxy_ctx, session) {
       return Ok(false);
     }

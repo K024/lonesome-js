@@ -5,10 +5,12 @@ use async_trait::async_trait;
 use cel::{Program, Value};
 use pingora::http::ResponseHeader;
 use pingora::proxy::Session;
+use pingora::Result;
 use pingora_limits::rate::Rate;
 use serde::Deserialize;
 
 use crate::matcher::cel_session_context::ensure_context;
+use crate::middlewares::middleware::middleware_internal_error;
 use crate::middlewares::Middleware;
 use crate::proxy::ctx::ProxyCtx;
 
@@ -156,11 +158,7 @@ impl RateLimitMiddleware {
 
 #[async_trait]
 impl Middleware for RateLimitMiddleware {
-  async fn request_filter(
-    &self,
-    proxy_ctx: &mut ProxyCtx,
-    session: &mut Session,
-  ) -> Result<bool, String> {
+  async fn request_filter(&self, proxy_ctx: &mut ProxyCtx, session: &mut Session) -> Result<bool> {
     if !self.should_apply(proxy_ctx, session) {
       return Ok(false);
     }
@@ -173,7 +171,7 @@ impl Middleware for RateLimitMiddleware {
     }
 
     let mut header = ResponseHeader::build(self.status, Some(4))
-      .map_err(|e| format!("rate_limit build response failed: {e}"))?;
+      .map_err(|e| middleware_internal_error("rate_limit build response failed", e.to_string()))?;
 
     if self.include_headers {
       header
@@ -181,20 +179,29 @@ impl Middleware for RateLimitMiddleware {
           "X-RateLimit-Limit",
           self.max_requests_per_observe.to_string(),
         )
-        .map_err(|e| format!("rate_limit insert X-RateLimit-Limit failed: {e}"))?;
+        .map_err(|e| {
+          middleware_internal_error("rate_limit insert X-RateLimit-Limit failed", e.to_string())
+        })?;
       header
         .insert_header("X-RateLimit-Remaining", "0")
-        .map_err(|e| format!("rate_limit insert X-RateLimit-Remaining failed: {e}"))?;
+        .map_err(|e| {
+          middleware_internal_error(
+            "rate_limit insert X-RateLimit-Remaining failed",
+            e.to_string(),
+          )
+        })?;
       header
         .insert_header("X-RateLimit-Reset", OBSERVE_SECONDS.to_string())
-        .map_err(|e| format!("rate_limit insert X-RateLimit-Reset failed: {e}"))?;
+        .map_err(|e| {
+          middleware_internal_error("rate_limit insert X-RateLimit-Reset failed", e.to_string())
+        })?;
     }
 
     session.as_downstream_mut().set_keepalive(None);
     session
       .write_response_header(Box::new(header), true)
       .await
-      .map_err(|e| format!("rate_limit write response failed: {e}"))?;
+      .map_err(|e| middleware_internal_error("rate_limit write response failed", e.to_string()))?;
 
     Ok(true)
   }

@@ -2,9 +2,11 @@ use async_trait::async_trait;
 use cel::{Program, Value};
 use pingora::http::ResponseHeader;
 use pingora::proxy::Session;
+use pingora::Result;
 use serde::Deserialize;
 
 use crate::matcher::cel_session_context::ensure_context;
+use crate::middlewares::middleware::middleware_internal_error;
 use crate::middlewares::Middleware;
 use crate::proxy::ctx::ProxyCtx;
 
@@ -98,42 +100,46 @@ impl CorsMiddleware {
     }
   }
 
-  fn apply_headers(&self, session: &Session, resp: &mut ResponseHeader) -> Result<(), String> {
+  fn apply_headers(&self, session: &Session, resp: &mut ResponseHeader) -> Result<()> {
     let allow_origin = self
       .resolve_allow_origin(session)
       .unwrap_or_else(|| "*".to_string());
 
     resp
       .insert_header("Access-Control-Allow-Origin", allow_origin.as_str())
-      .map_err(|e| format!("cors insert allow-origin failed: {e}"))?;
+      .map_err(|e| middleware_internal_error("cors insert allow-origin failed", e.to_string()))?;
     if self.reflect_host {
       resp
         .append_header("vary", "host")
-        .map_err(|e| format!("cors append vary host failed: {e}"))?;
+        .map_err(|e| middleware_internal_error("cors append vary host failed", e.to_string()))?;
     }
     resp
       .insert_header("Access-Control-Allow-Methods", self.allow_methods.as_str())
-      .map_err(|e| format!("cors insert allow-methods failed: {e}"))?;
+      .map_err(|e| middleware_internal_error("cors insert allow-methods failed", e.to_string()))?;
     resp
       .insert_header("Access-Control-Allow-Headers", self.allow_headers.as_str())
-      .map_err(|e| format!("cors insert allow-headers failed: {e}"))?;
+      .map_err(|e| middleware_internal_error("cors insert allow-headers failed", e.to_string()))?;
 
     if let Some(expose_headers) = &self.expose_headers {
       resp
         .insert_header("Access-Control-Expose-Headers", expose_headers.as_str())
-        .map_err(|e| format!("cors insert expose-headers failed: {e}"))?;
+        .map_err(|e| {
+          middleware_internal_error("cors insert expose-headers failed", e.to_string())
+        })?;
     }
 
     if self.allow_credentials {
       resp
         .insert_header("Access-Control-Allow-Credentials", "true")
-        .map_err(|e| format!("cors insert allow-credentials failed: {e}"))?;
+        .map_err(|e| {
+          middleware_internal_error("cors insert allow-credentials failed", e.to_string())
+        })?;
     }
 
     if let Some(max_age_secs) = self.max_age_secs {
       resp
         .insert_header("Access-Control-Max-Age", max_age_secs.to_string())
-        .map_err(|e| format!("cors insert max-age failed: {e}"))?;
+        .map_err(|e| middleware_internal_error("cors insert max-age failed", e.to_string()))?;
     }
 
     Ok(())
@@ -142,11 +148,7 @@ impl CorsMiddleware {
 
 #[async_trait]
 impl Middleware for CorsMiddleware {
-  async fn request_filter(
-    &self,
-    proxy_ctx: &mut ProxyCtx,
-    session: &mut Session,
-  ) -> Result<bool, String> {
+  async fn request_filter(&self, proxy_ctx: &mut ProxyCtx, session: &mut Session) -> Result<bool> {
     if !self.should_apply(proxy_ctx, session) {
       return Ok(false);
     }
@@ -155,17 +157,20 @@ impl Middleware for CorsMiddleware {
       return Ok(false);
     }
 
-    let mut resp = ResponseHeader::build(204, Some(8))
-      .map_err(|e| format!("cors create preflight response failed: {e}"))?;
+    let mut resp = ResponseHeader::build(204, Some(8)).map_err(|e| {
+      middleware_internal_error("cors create preflight response failed", e.to_string())
+    })?;
     self.apply_headers(session, &mut resp)?;
     resp
       .insert_header("Content-Length", "0")
-      .map_err(|e| format!("cors insert content-length failed: {e}"))?;
+      .map_err(|e| middleware_internal_error("cors insert content-length failed", e.to_string()))?;
 
     session
       .write_response_header(Box::new(resp), true)
       .await
-      .map_err(|e| format!("cors write preflight response failed: {e}"))?;
+      .map_err(|e| {
+        middleware_internal_error("cors write preflight response failed", e.to_string())
+      })?;
 
     Ok(true)
   }
@@ -175,7 +180,7 @@ impl Middleware for CorsMiddleware {
     proxy_ctx: &mut ProxyCtx,
     session: &mut Session,
     upstream_response: &mut ResponseHeader,
-  ) -> Result<(), String> {
+  ) -> Result<()> {
     if !self.should_apply(proxy_ctx, session) {
       return Ok(());
     }
