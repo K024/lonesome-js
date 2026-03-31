@@ -4,6 +4,7 @@ use std::thread::{self, JoinHandle};
 
 use async_trait::async_trait;
 use pingora::listeners::tls::TlsSettings;
+use pingora::listeners::TlsAcceptCallbacks;
 use pingora::proxy::http_proxy_service;
 use pingora::server::configuration::ServerConf;
 use pingora::server::{RunArgs, Server, ShutdownSignal, ShutdownSignalWatch};
@@ -11,6 +12,7 @@ use pingora::server::{RunArgs, Server, ShutdownSignal, ShutdownSignalWatch};
 use crate::config::{StartupConfig, StartupListenerConfig};
 use crate::proxy::DenaliProxy;
 use crate::route::SharedRouteTable;
+use crate::server::tls_callbacks::DownstreamTlsCallbacks;
 
 pub struct DenaliRuntime {
   shutdown_tx: Option<mpsc::Sender<ShutdownSignal>>,
@@ -43,8 +45,15 @@ impl DenaliRuntime {
               cert_path,
               key_path,
             } => {
-              let mut tls = TlsSettings::intermediate(cert_path.as_str(), key_path.as_str())
-                .expect("build tls settings");
+              let callbacks: TlsAcceptCallbacks = Box::new(DownstreamTlsCallbacks);
+              let mut tls =
+                TlsSettings::with_callbacks(callbacks).expect("build tls settings with callbacks");
+              tls
+                .set_certificate_chain_file(cert_path.as_str())
+                .expect("set tls certificate chain");
+              tls
+                .set_private_key_file(key_path.as_str(), pingora::tls::ssl::SslFiletype::PEM)
+                .expect("set tls private key");
               tls.enable_h2();
               service.add_tls_with_settings(&addr, None, tls);
             }

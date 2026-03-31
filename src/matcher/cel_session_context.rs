@@ -1,62 +1,118 @@
-use cel::Context;
-use form_urlencoded;
+use std::sync::Arc;
+
+use cel::objects::{Opaque, OpaqueEq};
+use cel::{Context, Value};
 use percent_encoding;
+use pingora::http::RequestHeader;
+use pingora::protocols::l4::socket::SocketAddr;
 use pingora::proxy::Session;
-use serde::Serialize;
 
 use crate::proxy::ctx::ProxyCtx;
+use crate::server::tls_callbacks::DownstreamTlsInfo;
 
 use super::cel_common::parent_context;
+
+const CEL_HTTP_SESSION_KEY: &str = "_cel_http_session";
+
+#[derive(Clone, Debug)]
+pub struct CelHttpSession {
+  req_header: RequestHeader,
+  client_addr: Option<SocketAddr>,
+  tls_sni: Option<String>,
+}
+
+impl Opaque for CelHttpSession {
+  fn runtime_type_name(&self) -> &str {
+    "denali.CelHttpSession"
+  }
+}
+
+impl OpaqueEq for CelHttpSession {
+  fn opaque_eq(&self, other: &dyn Opaque) -> bool {
+    other
+      .downcast_ref::<CelHttpSession>()
+      .map(|rhs| std::ptr::eq(self, rhs))
+      .unwrap_or(false)
+  }
+}
+
+impl CelHttpSession {
+  pub fn from_session(session: &Session) -> Self {
+    let tls_sni = session
+      .as_downstream()
+      .digest()
+      .and_then(|d| d.ssl_digest.as_ref())
+      .and_then(|d| d.extension.get::<DownstreamTlsInfo>())
+      .and_then(|info| info.sni.clone());
+
+    Self {
+      req_header: session.req_header().clone(),
+      client_addr: session.as_downstream().client_addr().cloned(),
+      tls_sni,
+    }
+  }
+
+  pub fn req_header(&self) -> &RequestHeader {
+    &self.req_header
+  }
+
+  pub fn client_addr(&self) -> Option<&SocketAddr> {
+    self.client_addr.as_ref()
+  }
+
+  pub fn host(&self) -> String {
+    if let Some(sni) = &self.tls_sni {
+      if !sni.is_empty() {
+        return sni.clone();
+      }
+    }
+
+    self
+      .req_header
+      .headers
+      .get("host")
+      .and_then(|v| v.to_str().ok())
+      .map(|h| h.split(':').next().unwrap_or(h).to_string())
+      .or_else(|| {
+        self
+          .req_header
+          .uri
+          .authority()
+          .map(|a| a.host().to_string())
+      })
+      .unwrap_or_default()
+  }
+
+  pub fn path(&self) -> String {
+    decode_path(self.req_header.uri.path())
+  }
+
+  pub fn method(&self) -> String {
+    self.req_header.method.as_str().to_string()
+  }
+
+  pub fn client_ip(&self) -> String {
+    self
+      .client_addr
+      .as_ref()
+      .and_then(|addr| addr.as_inet())
+      .map(|addr| addr.ip().to_string())
+      .unwrap_or_default()
+  }
+}
 
 pub struct SessionCelContext {
   pub cel_ctx: Box<Context<'static>>,
 }
 
-#[derive(Serialize)]
-struct NameValuePair {
-  name: String,
-  value: String,
-}
-
 fn read_session_cel_context(session: &Session) -> SessionCelContext {
-  let req = session.req_header();
-
-  let host = req
-    .headers
-    .get("host")
-    .and_then(|v| v.to_str().ok())
-    .map(|h| h.split(':').next().unwrap_or(h).to_string())
-    .unwrap_or_default();
-
-  let path = decode_path(req.uri.path());
-  let method = req.method.as_str().to_string();
-  let query_raw = req.uri.query().unwrap_or_default().to_string();
-
-  let headers = req
-    .headers
-    .iter()
-    .map(|(name, value)| NameValuePair {
-      name: name.as_str().to_ascii_lowercase(),
-      value: value.to_str().unwrap_or_default().to_string(),
-    })
-    .collect::<Vec<_>>();
-
-  let query = parse_query_pairs(query_raw.as_str());
-
-  // TODO: wire real client ip when we have a stable accessor from pingora session.
-  let client_ip = String::new();
+  let cel_session = Arc::new(CelHttpSession::from_session(session));
 
   let mut cel_ctx = parent_context().new_inner_scope();
-  cel_ctx.add_variable_from_value("host", host);
-  cel_ctx.add_variable_from_value("path", path);
-  cel_ctx.add_variable_from_value("method", method);
-  cel_ctx.add_variable_from_value("clientIP", client_ip);
-  cel_ctx
-    .add_variable("headers", headers)
-    .expect("serialize headers for cel context");
-  cel_ctx
-    .add_variable("query", query)
-    .expect("serialize query for cel context");
+  cel_ctx.add_variable_from_value(
+    CEL_HTTP_SESSION_KEY,
+    Value::Opaque(cel_session as Arc<dyn Opaque>),
+  );
 
   SessionCelContext {
     cel_ctx: Box::new(cel_ctx),
@@ -69,13 +125,8 @@ fn decode_path(path: &str) -> String {
     .into_owned()
 }
 
-fn parse_query_pairs(query_raw: &str) -> Vec<NameValuePair> {
-  form_urlencoded::parse(query_raw.as_bytes())
-    .map(|(k, v)| NameValuePair {
-      name: k.into_owned(),
-      value: v.into_owned(),
-    })
-    .collect::<Vec<_>>()
+pub fn cel_http_session_key() -> &'static str {
+  CEL_HTTP_SESSION_KEY
 }
 
 pub fn ensure_session_cel_context<'a>(

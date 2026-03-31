@@ -1,112 +1,180 @@
+use std::net::IpAddr;
+use std::str::FromStr;
 use std::sync::{Arc, OnceLock};
 
-use cel::objects::Key;
 use cel::{Context, FunctionContext, Value};
+use form_urlencoded;
+use ipnet::IpNet;
 
-fn get_string_var(ftx: &FunctionContext, name: &str) -> Option<Arc<String>> {
-  let val = ftx.ptx.get_variable(name)?;
-  match Value::try_from(val.as_ref()) {
-    Ok(Value::String(v)) => Some(v),
-    _ => None,
-  }
-}
+use super::cel_regex;
+use super::cel_session_context::{cel_http_session_key, CelHttpSession};
 
-fn extract_name_value(item: &Value) -> Option<(&str, &str)> {
-  let Value::Map(map) = item else {
+fn with_session<R>(ftx: &FunctionContext, f: impl FnOnce(&CelHttpSession) -> R) -> Option<R> {
+  let val = ftx.ptx.get_variable(cel_http_session_key())?;
+  let Ok(Value::Opaque(opaque)) = Value::try_from(val.as_ref()) else {
     return None;
   };
-
-  let mut name_out = None;
-  let mut value_out = None;
-
-  for (k, v) in map.map.iter() {
-    let (Key::String(k), Value::String(v)) = (k, v) else {
-      continue;
-    };
-
-    if k.as_str() == "name" {
-      name_out = Some(v.as_str());
-    } else if k.as_str() == "value" {
-      value_out = Some(v.as_str());
-    }
-  }
-
-  match (name_out, value_out) {
-    (Some(name), Some(value)) => Some((name, value)),
-    _ => None,
-  }
-}
-
-fn contains_kv_from_list_var(
-  ftx: &FunctionContext,
-  var_name: &str,
-  key: &str,
-  value: &str,
-  key_ignore_ascii_case: bool,
-) -> bool {
-  let Some(val) = ftx.ptx.get_variable(var_name) else {
-    return false;
-  };
-
-  let Ok(Value::List(list)) = Value::try_from(val.as_ref()) else {
-    return false;
-  };
-
-  for item in list.iter() {
-    let Some((name, actual_value)) = extract_name_value(item) else {
-      continue;
-    };
-
-    let key_match = if key_ignore_ascii_case {
-      name.eq_ignore_ascii_case(key)
-    } else {
-      name == key
-    };
-
-    if key_match && actual_value == value {
-      return true;
-    }
-  }
-
-  false
+  let session = opaque.downcast_ref::<CelHttpSession>()?;
+  Some(f(session))
 }
 
 fn host(ftx: &FunctionContext, expected: Arc<String>) -> bool {
-  get_string_var(ftx, "host")
-    .map(|v| v == expected)
-    .unwrap_or(false)
+  with_session(ftx, |s| s.host() == expected.as_str()).unwrap_or(false)
+}
+
+fn host_regexp(ftx: &FunctionContext, pattern: Arc<String>) -> bool {
+  with_session(ftx, |session| {
+    cel_regex::is_match(pattern.as_str(), &session.host())
+  })
+  .unwrap_or(false)
 }
 
 fn method(ftx: &FunctionContext, expected: Arc<String>) -> bool {
-  get_string_var(ftx, "method")
-    .map(|v| v == expected)
-    .unwrap_or(false)
+  with_session(ftx, |s| s.method() == expected.as_str()).unwrap_or(false)
 }
 
 fn path(ftx: &FunctionContext, expected: Arc<String>) -> bool {
-  get_string_var(ftx, "path")
-    .map(|v| v == expected)
-    .unwrap_or(false)
+  with_session(ftx, |s| s.path() == expected.as_str()).unwrap_or(false)
 }
 
 fn path_prefix(ftx: &FunctionContext, prefix: Arc<String>) -> bool {
-  get_string_var(ftx, "path")
-    .map(|v| v.starts_with(prefix.as_ref()))
-    .unwrap_or(false)
+  with_session(ftx, |s| s.path().starts_with(prefix.as_str())).unwrap_or(false)
 }
 
-fn client_ip(ftx: &FunctionContext, ip: Arc<String>) -> bool {
-  get_string_var(ftx, "clientIP")
-    .map(|v| v == ip)
-    .unwrap_or(false)
+fn path_regexp(ftx: &FunctionContext, pattern: Arc<String>) -> bool {
+  with_session(ftx, |session| {
+    cel_regex::is_match(pattern.as_str(), &session.path())
+  })
+  .unwrap_or(false)
+}
+
+fn client_ip(ftx: &FunctionContext, ip_or_cidr: Arc<String>) -> bool {
+  with_session(ftx, |session| {
+    client_ip_matches(&session.client_ip(), ip_or_cidr.as_str())
+  })
+  .unwrap_or(false)
 }
 
 fn header(ftx: &FunctionContext, key: Arc<String>, value: Arc<String>) -> bool {
-  contains_kv_from_list_var(ftx, "headers", &key, &value, true)
+  with_session(ftx, |session| {
+    session
+      .req_header()
+      .headers
+      .get_all(key.as_str())
+      .iter()
+      .filter_map(|v| v.to_str().ok())
+      .any(|v| v == value.as_str())
+  })
+  .unwrap_or(false)
+}
+
+fn header_regexp(ftx: &FunctionContext, key: Arc<String>, pattern: Arc<String>) -> bool {
+  with_session(ftx, |session| {
+    session
+      .req_header()
+      .headers
+      .get_all(key.as_str())
+      .iter()
+      .filter_map(|v| v.to_str().ok())
+      .any(|v| cel_regex::is_match(pattern.as_str(), v))
+  })
+  .unwrap_or(false)
 }
 
 fn query(ftx: &FunctionContext, key: Arc<String>, value: Arc<String>) -> bool {
-  contains_kv_from_list_var(ftx, "query", &key, &value, false)
+  with_session(ftx, |session| {
+    form_urlencoded::parse(
+      session
+        .req_header()
+        .uri
+        .query()
+        .unwrap_or_default()
+        .as_bytes(),
+    )
+    .any(|(k, v)| k.as_ref() == key.as_str() && v.as_ref() == value.as_str())
+  })
+  .unwrap_or(false)
+}
+
+fn query_regexp(ftx: &FunctionContext, key: Arc<String>, pattern: Arc<String>) -> bool {
+  with_session(ftx, |session| {
+    form_urlencoded::parse(
+      session
+        .req_header()
+        .uri
+        .query()
+        .unwrap_or_default()
+        .as_bytes(),
+    )
+    .filter(|(k, _)| k.as_ref() == key.as_str())
+    .any(|(_, v)| cel_regex::is_match(pattern.as_str(), v.as_ref()))
+  })
+  .unwrap_or(false)
+}
+
+fn header_value(ftx: &FunctionContext, key: Arc<String>) -> String {
+  with_session(ftx, |session| {
+    session
+      .req_header()
+      .headers
+      .get(key.as_str())
+      .and_then(|v| v.to_str().ok())
+      .unwrap_or_default()
+      .to_string()
+  })
+  .unwrap_or_default()
+}
+
+fn host_value(ftx: &FunctionContext) -> String {
+  with_session(ftx, |s| s.host()).unwrap_or_default()
+}
+
+fn method_value(ftx: &FunctionContext) -> String {
+  with_session(ftx, |s| s.method()).unwrap_or_default()
+}
+
+fn path_value(ftx: &FunctionContext) -> String {
+  with_session(ftx, |s| s.path()).unwrap_or_default()
+}
+
+fn query_value(ftx: &FunctionContext, key: Arc<String>) -> String {
+  with_session(ftx, |session| {
+    form_urlencoded::parse(
+      session
+        .req_header()
+        .uri
+        .query()
+        .unwrap_or_default()
+        .as_bytes(),
+    )
+    .find_map(|(k, v)| {
+      if k.as_ref() == key.as_str() {
+        Some(v.into_owned())
+      } else {
+        None
+      }
+    })
+    .unwrap_or_default()
+  })
+  .unwrap_or_default()
+}
+
+fn client_ip_value(ftx: &FunctionContext) -> String {
+  with_session(ftx, |s| s.client_ip()).unwrap_or_default()
+}
+
+fn client_ip_matches(actual: &str, expected: &str) -> bool {
+  let Ok(actual_ip) = actual.parse::<IpAddr>() else {
+    return false;
+  };
+
+  if let Ok(expected_ip) = expected.parse::<IpAddr>() {
+    return actual_ip == expected_ip;
+  }
+
+  IpNet::from_str(expected)
+    .map(|network| network.contains(&actual_ip))
+    .unwrap_or(false)
 }
 
 pub fn parent_context() -> &'static Context<'static> {
@@ -114,13 +182,26 @@ pub fn parent_context() -> &'static Context<'static> {
 
   PARENT.get_or_init(|| {
     let mut ctx = Context::default();
+    ctx.add_function("Header", header);
+    ctx.add_function("HeaderRegexp", header_regexp);
     ctx.add_function("Host", host);
+    ctx.add_function("HostRegexp", host_regexp);
     ctx.add_function("Method", method);
     ctx.add_function("Path", path);
     ctx.add_function("PathPrefix", path_prefix);
-    ctx.add_function("Header", header);
+    ctx.add_function("PathRegexp", path_regexp);
     ctx.add_function("Query", query);
+    ctx.add_function("QueryRegexp", query_regexp);
     ctx.add_function("ClientIP", client_ip);
+
+    // TODO: update getters to return Option<T>
+    ctx.add_function("HeaderValue", header_value);
+    ctx.add_function("HostValue", host_value);
+    ctx.add_function("MethodValue", method_value);
+    ctx.add_function("PathValue", path_value);
+    ctx.add_function("QueryValue", query_value);
+    ctx.add_function("ClientIPValue", client_ip_value);
+
     ctx
   })
 }
