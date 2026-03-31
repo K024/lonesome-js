@@ -109,8 +109,8 @@ impl ProxyCacheHandler for CacheHandler {
     };
 
     resp
-      .insert_header("cdn-cache-status", status)
-      .map_err(|e| format!("insert cdn-cache-status failed: {e}"))?;
+      .insert_header("Cdn-Cache-Status", status)
+      .map_err(|e| format!("insert Cdn-Cache-Status failed: {e}"))?;
 
     Ok(())
   }

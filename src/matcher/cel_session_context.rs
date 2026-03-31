@@ -46,6 +46,7 @@ impl CelHttpSession {
       .and_then(|info| info.sni.clone());
 
     Self {
+      // TODO: borrow req_header when cel-rust supports it
       req_header: session.req_header().clone(),
       client_addr: session.as_downstream().client_addr().cloned(),
       tls_sni,

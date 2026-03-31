@@ -16,6 +16,8 @@ pub enum StartupListenerConfig {
 
 #[derive(Clone, Debug)]
 pub struct StartupConfig {
+  pub threads: Option<usize>,
+  pub work_stealing: Option<bool>,
   pub listeners: Vec<StartupListenerConfig>,
 }
 

@@ -29,6 +29,12 @@ impl DenaliRuntime {
       .name("denali-pingora".to_string())
       .spawn(move || {
         let mut conf = ServerConf::new().expect("default pingora conf");
+        if let Some(threads) = startup.threads {
+          conf.threads = threads;
+        }
+        if let Some(work_stealing) = startup.work_stealing {
+          conf.work_stealing = work_stealing;
+        }
         conf.grace_period_seconds = Some(0);
         conf.graceful_shutdown_timeout_seconds = Some(1);
 

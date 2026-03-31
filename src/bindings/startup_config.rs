@@ -4,6 +4,8 @@ use crate::config::{StartupConfig, StartupListenerConfig};
 
 #[napi(object)]
 pub struct NapiStartupConfig {
+  pub threads: Option<u32>,
+  pub work_stealing: Option<bool>,
   pub listeners: Vec<NapiStartupListenerConfig>,
 }
 
@@ -58,6 +60,10 @@ impl TryFrom<NapiStartupConfig> for StartupConfig {
       })
       .collect::<Result<Vec<_>, _>>()?;
 
-    Ok(StartupConfig { listeners })
+    Ok(StartupConfig {
+      threads: value.threads.map(|v| v as usize),
+      work_stealing: value.work_stealing,
+      listeners,
+    })
   }
 }

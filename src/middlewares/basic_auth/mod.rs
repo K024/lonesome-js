@@ -89,12 +89,12 @@ impl BasicAuthMiddleware {
       .map_err(|e| format!("basic_auth build 401 failed: {e}"))?;
     resp
       .insert_header(
-        "www-authenticate",
+        "WWW-Authenticate",
         format!("Basic realm=\"{}\", charset=\"UTF-8\"", self.realm),
       )
       .map_err(|e| format!("basic_auth insert www-authenticate failed: {e}"))?;
     resp
-      .insert_header("content-length", "0")
+      .insert_header("Content-Length", "0")
       .map_err(|e| format!("basic_auth insert content-length failed: {e}"))?;
 
     session

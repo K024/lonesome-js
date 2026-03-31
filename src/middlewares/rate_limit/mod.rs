@@ -12,7 +12,7 @@ use crate::matcher::cel_session_context::ensure_context;
 use crate::middlewares::Middleware;
 use crate::proxy::ctx::ProxyCtx;
 
-static OBSERVE_SECONDS: isize = 1;
+static OBSERVE_SECONDS: isize = 10;
 static RATE_LIMITER: LazyLock<Rate> =
   LazyLock::new(|| Rate::new(Duration::from_secs(OBSERVE_SECONDS as u64)));
 
@@ -28,7 +28,7 @@ pub enum LimitModeConfig {
 pub struct RateLimitConfig {
   #[serde(flatten)]
   pub mode: LimitModeConfig,
-  pub max_rps: isize,
+  pub max_rps: f64,
   pub status: Option<u16>,
   pub include_headers: Option<bool>,
   pub rule: Option<String>,
@@ -50,7 +50,7 @@ impl RateLimitConfig {
       }
     }
 
-    if self.max_rps <= 0 {
+    if self.max_rps <= 0.0 {
       return Err("middleware rate_limit.max_rps must be > 0".to_string());
     }
 
@@ -66,7 +66,7 @@ impl RateLimitConfig {
 
 pub struct RateLimitMiddleware {
   mode: LimitMode,
-  max_rps: isize,
+  max_requests_per_observe: isize,
   status: u16,
   include_headers: bool,
   cel_program: Option<Program>,
@@ -103,7 +103,7 @@ impl RateLimitMiddleware {
 
     Ok(Self {
       mode,
-      max_rps: cfg.max_rps,
+      max_requests_per_observe: (cfg.max_rps * OBSERVE_SECONDS as f64).round() as isize,
       status: cfg.status.unwrap_or(429),
       include_headers: cfg.include_headers.unwrap_or(true),
       cel_program,
@@ -168,7 +168,7 @@ impl Middleware for RateLimitMiddleware {
     let key = self.key_value(proxy_ctx, session).unwrap_or_default();
 
     let curr_window_requests = RATE_LIMITER.observe(&key, 1);
-    if curr_window_requests <= self.max_rps * OBSERVE_SECONDS {
+    if curr_window_requests <= self.max_requests_per_observe {
       return Ok(false);
     }
 
@@ -177,14 +177,17 @@ impl Middleware for RateLimitMiddleware {
 
     if self.include_headers {
       header
-        .insert_header("x-rate-limit-limit", self.max_rps.to_string())
-        .map_err(|e| format!("rate_limit insert x-rate-limit-limit failed: {e}"))?;
+        .insert_header(
+          "X-RateLimit-Limit",
+          self.max_requests_per_observe.to_string(),
+        )
+        .map_err(|e| format!("rate_limit insert X-RateLimit-Limit failed: {e}"))?;
       header
-        .insert_header("x-rate-limit-remaining", "0")
-        .map_err(|e| format!("rate_limit insert x-rate-limit-remaining failed: {e}"))?;
+        .insert_header("X-RateLimit-Remaining", "0")
+        .map_err(|e| format!("rate_limit insert X-RateLimit-Remaining failed: {e}"))?;
       header
-        .insert_header("x-rate-limit-reset", "1")
-        .map_err(|e| format!("rate_limit insert x-rate-limit-reset failed: {e}"))?;
+        .insert_header("X-RateLimit-Reset", OBSERVE_SECONDS.to_string())
+        .map_err(|e| format!("rate_limit insert X-RateLimit-Reset failed: {e}"))?;
     }
 
     session.as_downstream_mut().set_keepalive(None);

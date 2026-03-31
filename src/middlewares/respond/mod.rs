@@ -90,12 +90,12 @@ impl Middleware for RespondMiddleware {
         .as_deref()
         .unwrap_or("text/plain; charset=utf-8");
       resp
-        .insert_header("content-type", content_type)
+        .insert_header("Content-Type", content_type)
         .map_err(|e| format!("respond insert content-type failed: {e}"))?;
     }
 
     resp
-      .insert_header("content-length", body_bytes.len().to_string())
+      .insert_header("Content-Length", body_bytes.len().to_string())
       .map_err(|e| format!("respond insert content-length failed: {e}"))?;
 
     session

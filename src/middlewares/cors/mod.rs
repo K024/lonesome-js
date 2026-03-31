@@ -104,7 +104,7 @@ impl CorsMiddleware {
       .unwrap_or_else(|| "*".to_string());
 
     resp
-      .insert_header("access-control-allow-origin", allow_origin.as_str())
+      .insert_header("Access-Control-Allow-Origin", allow_origin.as_str())
       .map_err(|e| format!("cors insert allow-origin failed: {e}"))?;
     if self.reflect_host {
       resp
@@ -112,27 +112,27 @@ impl CorsMiddleware {
         .map_err(|e| format!("cors append vary host failed: {e}"))?;
     }
     resp
-      .insert_header("access-control-allow-methods", self.allow_methods.as_str())
+      .insert_header("Access-Control-Allow-Methods", self.allow_methods.as_str())
       .map_err(|e| format!("cors insert allow-methods failed: {e}"))?;
     resp
-      .insert_header("access-control-allow-headers", self.allow_headers.as_str())
+      .insert_header("Access-Control-Allow-Headers", self.allow_headers.as_str())
       .map_err(|e| format!("cors insert allow-headers failed: {e}"))?;
 
     if let Some(expose_headers) = &self.expose_headers {
       resp
-        .insert_header("access-control-expose-headers", expose_headers.as_str())
+        .insert_header("Access-Control-Expose-Headers", expose_headers.as_str())
         .map_err(|e| format!("cors insert expose-headers failed: {e}"))?;
     }
 
     if self.allow_credentials {
       resp
-        .insert_header("access-control-allow-credentials", "true")
+        .insert_header("Access-Control-Allow-Credentials", "true")
         .map_err(|e| format!("cors insert allow-credentials failed: {e}"))?;
     }
 
     if let Some(max_age_secs) = self.max_age_secs {
       resp
-        .insert_header("access-control-max-age", max_age_secs.to_string())
+        .insert_header("Access-Control-Max-Age", max_age_secs.to_string())
         .map_err(|e| format!("cors insert max-age failed: {e}"))?;
     }
 
@@ -159,7 +159,7 @@ impl Middleware for CorsMiddleware {
       .map_err(|e| format!("cors create preflight response failed: {e}"))?;
     self.apply_headers(session, &mut resp)?;
     resp
-      .insert_header("content-length", "0")
+      .insert_header("Content-Length", "0")
       .map_err(|e| format!("cors insert content-length failed: {e}"))?;
 
     session

@@ -143,10 +143,10 @@ impl Middleware for RedirectHttpsMiddleware {
     let mut resp = ResponseHeader::build(self.code, Some(2))
       .map_err(|e| format!("redirect_https create response header failed: {e}"))?;
     resp
-      .insert_header("location", location)
+      .insert_header("Location", location)
       .map_err(|e| format!("redirect_https insert location failed: {e}"))?;
     resp
-      .insert_header("content-length", "0")
+      .insert_header("Content-Length", "0")
       .map_err(|e| format!("redirect_https insert content-length failed: {e}"))?;
 
     session

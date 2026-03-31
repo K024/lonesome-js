@@ -150,10 +150,10 @@ impl Middleware for RedirectMiddleware {
     let mut resp = ResponseHeader::build(self.code, Some(2))
       .map_err(|e| format!("redirect create response header failed: {e}"))?;
     resp
-      .insert_header("location", location)
+      .insert_header("Location", location)
       .map_err(|e| format!("redirect insert location failed: {e}"))?;
     resp
-      .insert_header("content-length", "0")
+      .insert_header("Content-Length", "0")
       .map_err(|e| format!("redirect insert content-length failed: {e}"))?;
 
     session
