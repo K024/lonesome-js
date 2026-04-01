@@ -123,10 +123,11 @@ impl RateLimitMiddleware {
 
   fn key_value(&self, proxy_ctx: &mut ProxyCtx, session: &Session) -> Option<String> {
     match &self.mode {
-      LimitMode::RemoteIp => match session.client_addr().map(|addr| addr.to_string()) {
-        Some(v) if !v.is_empty() => Some(v.to_string()),
-        _ => None,
-      },
+      LimitMode::RemoteIp => session
+        .client_addr()
+        .and_then(|addr| addr.as_inet())
+        .map(|addr| addr.ip().to_string())
+        .filter(|v| !v.is_empty()),
       LimitMode::Header { header_name } => session
         .req_header()
         .headers
@@ -163,7 +164,9 @@ impl Middleware for RateLimitMiddleware {
       return Ok(false);
     }
 
-    let key = self.key_value(proxy_ctx, session).unwrap_or_default();
+    let Some(key) = self.key_value(proxy_ctx, session) else {
+      return Ok(false);
+    };
 
     let curr_window_requests = RATE_LIMITER.observe(&key, 1);
     if curr_window_requests <= self.max_requests_per_observe {

@@ -26,7 +26,8 @@
     "artifacts": "napi artifacts",
     "build": "napi build --output-dir dist --platform --release",
     "build:debug": "napi build --output-dir dist --platform",
-    "version": "napi version"
+    "version": "napi version",
+    "test": "tsx --test 'e2e-test/**/*.test.ts'"
   },
   "devDependencies": {
     "@napi-rs/cli": "^3.5.1",
