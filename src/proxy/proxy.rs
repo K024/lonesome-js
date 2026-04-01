@@ -26,14 +26,6 @@ impl DenaliProxy {
     Self { routes }
   }
 
-  fn map_upstream_error(err: String) -> Box<Error> {
-    pingora::Error::because(
-      ErrorType::HTTPStatus(502),
-      "upstream selection failed",
-      std::io::Error::other(err),
-    )
-  }
-
   fn ensure_ctx_route(&self, session: &Session, ctx: &mut ProxyCtx) -> bool {
     let snapshot = self.routes.read_snapshot();
     if let Some(route) = snapshot.find_first_match(session, ctx) {
@@ -132,17 +124,10 @@ impl ProxyHttp for DenaliProxy {
     _session: &mut Session,
     ctx: &mut Self::CTX,
   ) -> Result<Box<HttpPeer>> {
-    let route = Self::current_route(ctx).ok_or_else(|| {
-      pingora::Error::because(
-        ErrorType::HTTPStatus(404),
-        "no route matched",
-        std::io::Error::other("route not found"),
-      )
-    })?;
+    let route = Self::current_route(ctx)
+      .ok_or_else(|| Error::explain(ErrorType::HTTPStatus(404), "no route matched"))?;
 
-    route
-      .select_upstream_peer(ctx)
-      .map_err(Self::map_upstream_error)
+    route.select_upstream_peer(ctx)
   }
 
   async fn connected_to_upstream(
@@ -359,11 +344,10 @@ impl ProxyHttp for DenaliProxy {
 
   fn cache_key_callback(&self, session: &Session, ctx: &mut Self::CTX) -> Result<CacheKey> {
     let Some(cache) = Self::current_cache_handler(ctx) else {
-      return Err(pingora::Error::because(
+      return pingora::Error::e_explain(
         ErrorType::InternalError,
         "cache middleware not configured",
-        std::io::Error::other("cache callbacks missing"),
-      ));
+      );
     };
 
     cache.cache_key_callback(session, ctx).map(build_cache_key)

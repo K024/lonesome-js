@@ -1,6 +1,7 @@
 use cel::{Program, Value};
 use pingora::lb::Backend;
 use pingora::upstreams::peer::HttpPeer;
+use pingora::{Error, ErrorType, Result};
 
 use crate::config::{
   LoadBalancerAlgorithm, LoadBalancerConfig, UpstreamAddressConfig, UpstreamConfig,
@@ -8,7 +9,14 @@ use crate::config::{
 use crate::proxy::ctx::ProxyCtx;
 use crate::virtual_js::virtual_open_connection;
 
-use super::lb::{build_load_balancer, DynLoadBalancer, EndpointIndex};
+use super::lb::{build_load_balancer, is_backend_healthy, DynLoadBalancer, EndpointIndex};
+
+#[derive(Clone, Debug)]
+pub struct UpstreamState {
+  pub retries: i32,
+  pub last_endpoint_index: Option<usize>,
+  pub last_backend: Option<Backend>,
+}
 
 #[derive(Clone)]
 pub enum UpstreamEndpoint {
@@ -84,7 +92,7 @@ impl UpstreamPool {
       if endpoints.len() > 1 {
         LoadBalancerConfig {
           algorithm: LoadBalancerAlgorithm::ConsistentHash,
-          max_iterations: 256,
+          max_iterations: 32,
           hash_key_rule: None,
         }
       } else {
@@ -114,26 +122,51 @@ impl UpstreamPool {
     })
   }
 
-  pub fn select_peer(&self, proxy_ctx: &ProxyCtx, route_id: &str) -> Result<Box<HttpPeer>, String> {
+  pub fn select_peer(&self, proxy_ctx: &mut ProxyCtx, route_id: &str) -> Result<Box<HttpPeer>> {
     if self.endpoints.len() == 1 {
+      if let Some(state) = proxy_ctx.upstream_state.as_mut() {
+        state.last_backend = None;
+        state.last_endpoint_index = Some(0);
+      }
       return self.peer_from_endpoint(&self.endpoints[0]);
     }
 
     let key = self.selection_key(proxy_ctx)?;
     let max_iterations = self.lb_cfg.max_iterations;
 
-    if let Some(lb) = &self.lb {
-      if let Some(backend) = lb.select_backend(&key, max_iterations) {
-        return self.peer_from_backend(&backend);
+    // only if upstream_state is set, check if the backend is healthy
+    if let Some(state) = proxy_ctx.upstream_state.as_mut() {
+      if let Some(lb) = &self.lb {
+        let now = chrono::Utc::now().timestamp_millis();
+        if let Some(backend) =
+          lb.select_backend_with(&key, max_iterations, &|backend: &Backend, healthy: bool| {
+            healthy && is_backend_healthy(backend, now)
+          })
+        {
+          let peer = self.peer_from_backend(&backend);
+          state.last_endpoint_index = backend.ext.get::<EndpointIndex>().map(|idx| idx.0);
+          state.last_backend = Some(backend);
+          return peer;
+        }
+      }
+    } else {
+      if let Some(lb) = &self.lb {
+        if let Some(backend) = lb.select_backend(&key, max_iterations) {
+          return self.peer_from_backend(&backend);
+        }
       }
     }
 
-    Err(format!(
-      "route '{route_id}' failed to select upstream backend"
+    Err(Error::because(
+      ErrorType::HTTPStatus(502),
+      "upstream selection failed",
+      std::io::Error::other(format!(
+        "route '{route_id}' failed to select healthy upstream backend"
+      )),
     ))
   }
 
-  fn selection_key(&self, proxy_ctx: &ProxyCtx) -> Result<Vec<u8>, String> {
+  fn selection_key(&self, proxy_ctx: &ProxyCtx) -> Result<Vec<u8>> {
     let Some(program) = &self.hash_key_program else {
       return Ok(Vec::new());
     };
@@ -142,39 +175,61 @@ impl UpstreamPool {
       .session_cel_context
       .as_ref()
       .map(|r| r.cel_ctx.as_ref())
-      .ok_or_else(|| "proxy cel context is not initialized".to_string())?;
+      .ok_or_else(|| {
+        Error::because(
+          ErrorType::InternalError,
+          "upstream selection failed",
+          std::io::Error::other("proxy cel context is not initialized"),
+        )
+      })?;
 
     match program.execute(ctx) {
       Ok(Value::String(v)) => Ok(v.as_bytes().to_vec()),
       Ok(Value::Int(v)) => Ok(v.to_string().into_bytes()),
       Ok(Value::UInt(v)) => Ok(v.to_string().into_bytes()),
       Ok(Value::Bool(v)) => Ok(v.to_string().into_bytes()),
-      Ok(other) => Err(format!(
-        "lb.hash_key_rule must resolve to scalar, got {other:?}"
+      Ok(other) => Err(Error::because(
+        ErrorType::InternalError,
+        "upstream selection failed",
+        std::io::Error::other(format!(
+          "lb.hash_key_rule must resolve to scalar, got {other:?}"
+        )),
       )),
-      Err(e) => Err(format!("failed to evaluate lb.hash_key_rule: {e}")),
+      Err(e) => Err(Error::because(
+        ErrorType::InternalError,
+        "upstream selection failed",
+        std::io::Error::other(format!("failed to evaluate lb.hash_key_rule: {e}")),
+      )),
     }
   }
 
-  fn peer_from_backend(&self, backend: &Backend) -> Result<Box<HttpPeer>, String> {
+  fn peer_from_backend(&self, backend: &Backend) -> Result<Box<HttpPeer>> {
     let endpoint_idx = backend.ext.get::<EndpointIndex>().ok_or_else(|| {
-      format!(
-        "selected backend '{}' missing endpoint index extension",
-        backend.addr
+      Error::because(
+        ErrorType::InternalError,
+        "upstream selection failed",
+        std::io::Error::other(format!(
+          "selected backend '{}' missing endpoint index extension",
+          backend.addr
+        )),
       )
     })?;
 
     let endpoint = self.endpoints.get(endpoint_idx.0).ok_or_else(|| {
-      format!(
-        "selected backend '{}' points to invalid endpoint index {}",
-        backend.addr, endpoint_idx.0
+      Error::because(
+        ErrorType::InternalError,
+        "upstream selection failed",
+        std::io::Error::other(format!(
+          "selected backend '{}' points to invalid endpoint index {}",
+          backend.addr, endpoint_idx.0
+        )),
       )
     })?;
 
     self.peer_from_endpoint(endpoint)
   }
 
-  fn peer_from_endpoint(&self, endpoint: &UpstreamEndpoint) -> Result<Box<HttpPeer>, String> {
+  fn peer_from_endpoint(&self, endpoint: &UpstreamEndpoint) -> Result<Box<HttpPeer>> {
     match endpoint {
       UpstreamEndpoint::Tcp {
         address,
@@ -197,8 +252,13 @@ impl UpstreamPool {
         sni,
         ..
       } => {
-        let mut peer = HttpPeer::new_uds(path, *tls, sni.clone())
-          .map_err(|e| format!("failed to create uds peer: {e}"))?;
+        let mut peer = HttpPeer::new_uds(path, *tls, sni.clone()).map_err(|e| {
+          Error::because(
+            ErrorType::InternalError,
+            "upstream selection failed",
+            std::io::Error::other(format!("failed to create uds peer: {e}")),
+          )
+        })?;
         if !*tls && *h2c {
           peer.options.set_http_version(2, 2);
         }
@@ -207,7 +267,13 @@ impl UpstreamPool {
       UpstreamEndpoint::VirtualJs {
         key, tls, h2c, sni, ..
       } => {
-        let peer = virtual_open_connection(key, *tls, *h2c, sni.clone())?;
+        let peer = virtual_open_connection(key, *tls, *h2c, sni.clone()).map_err(|e| {
+          Error::because(
+            ErrorType::InternalError,
+            "upstream selection failed",
+            std::io::Error::other(e),
+          )
+        })?;
         Ok(Box::new(peer))
       }
     }

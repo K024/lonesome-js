@@ -61,7 +61,7 @@ impl Default for LoadBalancerConfig {
   fn default() -> Self {
     Self {
       algorithm: LoadBalancerAlgorithm::RoundRobin,
-      max_iterations: 256,
+      max_iterations: 32,
       hash_key_rule: None,
     }
   }

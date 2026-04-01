@@ -1,4 +1,5 @@
 use pingora::upstreams::peer::HttpPeer;
+use pingora::Result;
 
 use crate::config::RouteConfig;
 use crate::matcher::Matcher;
@@ -46,7 +47,7 @@ impl Route {
     self.middlewares.iter()
   }
 
-  pub fn select_upstream_peer(&self, proxy_ctx: &ProxyCtx) -> Result<Box<HttpPeer>, String> {
+  pub fn select_upstream_peer(&self, proxy_ctx: &mut ProxyCtx) -> Result<Box<HttpPeer>> {
     self.upstream_pool.select_peer(proxy_ctx, &self.id)
   }
 }

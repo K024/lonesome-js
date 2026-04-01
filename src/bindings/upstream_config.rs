@@ -34,7 +34,7 @@ impl TryFrom<NapiLoadBalancerConfig> for LoadBalancerConfig {
 
     Ok(LoadBalancerConfig {
       algorithm,
-      max_iterations: value.max_iterations.unwrap_or(256) as usize,
+      max_iterations: value.max_iterations.unwrap_or(32) as usize,
       hash_key_rule: value.hash_key_rule.filter(|s| !s.trim().is_empty()),
     })
   }

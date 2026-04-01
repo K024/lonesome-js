@@ -4,7 +4,7 @@ mod handler;
 use async_trait::async_trait;
 use cel::{Program, Value};
 use pingora::proxy::Session;
-use pingora::Result;
+use pingora::{Error, ErrorType, Result};
 use serde::Deserialize;
 
 use crate::matcher::cel_session_context::ensure_context;
@@ -80,6 +80,13 @@ impl Middleware for CacheMiddleware {
   ) -> Result<()> {
     if !self.should_apply(proxy_ctx, session) {
       return Ok(());
+    }
+
+    if proxy_ctx.cache_handler.is_some() {
+      return Error::e_explain(
+        ErrorType::InternalError,
+        "multiple cache middlewares are not allowed",
+      );
     }
 
     proxy_ctx.cache_handler = Some(self.handler.clone());

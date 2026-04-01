@@ -5,13 +5,15 @@ use pingora::lb::Extensions;
 use crate::matcher::cel_session_context::SessionCelContext;
 use crate::proxy::cache::ProxyCacheHandler;
 use crate::route::Route;
+use crate::upstream::upstream::UpstreamState;
 
 pub struct ProxyCtx {
   pub route_id: String,
   pub current_route: Option<Arc<Route>>,
   pub session_cel_context: Option<SessionCelContext>,
-  pub extensions: Extensions,
   pub cache_handler: Option<Arc<dyn ProxyCacheHandler>>,
+  pub upstream_state: Option<UpstreamState>,
+  pub extensions: Extensions,
 }
 
 impl ProxyCtx {
@@ -20,8 +22,9 @@ impl ProxyCtx {
       route_id: String::new(),
       current_route: None,
       session_cel_context: None,
-      extensions: Extensions::new(),
       cache_handler: None,
+      upstream_state: None,
+      extensions: Extensions::new(),
     }
   }
 
@@ -29,8 +32,9 @@ impl ProxyCtx {
     self.route_id.clear();
     self.current_route = None;
     self.session_cel_context = None;
-    self.extensions.clear();
     self.cache_handler = None;
+    self.upstream_state = None;
+    self.extensions.clear();
   }
 
   pub fn set_route(&mut self, route: Arc<Route>) {

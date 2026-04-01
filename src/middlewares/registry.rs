@@ -5,6 +5,7 @@ use crate::middlewares::basic_auth::{BasicAuthConfig, BasicAuthMiddleware};
 use crate::middlewares::cache::{CacheConfig, CacheMiddleware};
 use crate::middlewares::compression::{CompressionConfig, CompressionMiddleware};
 use crate::middlewares::cors::{CorsConfig, CorsMiddleware};
+use crate::middlewares::health_check::{HealthCheckConfig, HealthCheckMiddleware};
 use crate::middlewares::rate_limit::{RateLimitConfig, RateLimitMiddleware};
 use crate::middlewares::redirect::{RedirectConfig, RedirectMiddleware};
 use crate::middlewares::redirect_https::{RedirectHttpsConfig, RedirectHttpsMiddleware};
@@ -23,6 +24,7 @@ pub enum MiddlewareType {
   RequestHeaders(RequestHeadersConfig),
   ResponseHeaders(ResponseHeadersConfig),
   Compression(CompressionConfig),
+  HealthCheck(HealthCheckConfig),
   Cache(CacheConfig),
   Rewrite(RewriteConfig),
   Respond(RespondConfig),
@@ -45,6 +47,7 @@ pub fn build_middleware(cfg: &MiddlewareConfig) -> Result<Box<dyn Middleware>, S
       Ok(Box::new(ResponseHeadersMiddleware::from_config(v.clone())?))
     }
     MiddlewareType::Compression(v) => Ok(Box::new(CompressionMiddleware::from_config(v.clone())?)),
+    MiddlewareType::HealthCheck(v) => Ok(Box::new(HealthCheckMiddleware::from_config(v.clone())?)),
     MiddlewareType::Cache(v) => Ok(Box::new(CacheMiddleware::from_config(v.clone())?)),
     MiddlewareType::Rewrite(v) => Ok(Box::new(RewriteMiddleware::from_config(v.clone())?)),
     MiddlewareType::Respond(v) => Ok(Box::new(RespondMiddleware::from_config(v.clone())?)),
