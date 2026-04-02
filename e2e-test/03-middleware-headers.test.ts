@@ -31,7 +31,10 @@ describe('middleware: request_headers', () => {
         id: nextRouteId('rqh-set'),
         matcher: { rule: "PathPrefix('/rqh/set')", priority: 50 },
         middlewares: [
-          { type: 'request_headers', config: { name: 'x-injected', action: 'set', value: 'injected' } },
+          {
+            type: 'request_headers',
+            config: { name: 'x-injected', action: 'set', value: 'injected' },
+          },
         ],
         upstreams: tcpUpstream(upstream.port),
       }))
@@ -53,7 +56,10 @@ describe('middleware: request_headers', () => {
         id: nextRouteId('rqh-append'),
         matcher: { rule: "PathPrefix('/rqh/append')", priority: 50 },
         middlewares: [
-          { type: 'request_headers', config: { name: 'x-multi', action: 'append', value: 'appended' } },
+          {
+            type: 'request_headers',
+            config: { name: 'x-multi', action: 'append', value: 'appended' },
+          },
         ],
         upstreams: tcpUpstream(upstream.port),
       }))
@@ -71,7 +77,10 @@ describe('middleware: request_headers', () => {
         id: nextRouteId('rqh-default'),
         matcher: { rule: "PathPrefix('/rqh/default')", priority: 50 },
         middlewares: [
-          { type: 'request_headers', config: { name: 'x-default', action: 'set_default', value: 'fallback' } },
+          {
+            type: 'request_headers',
+            config: { name: 'x-default', action: 'set_default', value: 'fallback' },
+          },
         ],
         upstreams: tcpUpstream(upstream.port),
       }))
@@ -111,7 +120,15 @@ describe('middleware: request_headers', () => {
         id: nextRouteId('rqh-rule'),
         matcher: { rule: "PathPrefix('/rqh/rule')", priority: 50 },
         middlewares: [
-          { type: 'request_headers', config: { name: 'x-conditional', action: 'set', value: 'yes', rule: "Query('apply', '1')" } },
+          {
+            type: 'request_headers',
+            config: {
+              name: 'x-conditional',
+              action: 'set',
+              value: 'yes',
+              rule: "Query('apply', '1')",
+            },
+          },
         ],
         upstreams: tcpUpstream(upstream.port),
       }))
@@ -126,6 +143,31 @@ describe('middleware: request_headers', () => {
       assert.strictEqual(body.headers['x-conditional'], undefined)
     })
   })
+
+  describe('expression', () => {
+    before(() => {
+      cleanups.push(withRoute(server, {
+        id: nextRouteId('rqh-expr'),
+        matcher: { rule: "PathPrefix('/rqh/expression')", priority: 50 },
+        middlewares: [
+          {
+            type: 'request_headers',
+            config: {
+              name: 'x-rqh-expr',
+              action: 'set',
+              expression: "MethodValue() + '-' + QueryValue('id')",
+            },
+          },
+        ],
+        upstreams: tcpUpstream(upstream.port),
+      }))
+    })
+
+    it('sets request header from CEL expression', async () => {
+      const { body } = await getJson(proxyPort, '/rqh/expression/test?id=42', { method: 'POST' })
+      assert.strictEqual(body.headers['x-rqh-expr'], 'POST-42')
+    })
+  })
 })
 
 // ─── ResponseHeaders ─────────────────────────────────────────────────────────
@@ -137,7 +179,10 @@ describe('middleware: response_headers', () => {
         id: nextRouteId('rsh-set'),
         matcher: { rule: "PathPrefix('/rsh/set')", priority: 50 },
         middlewares: [
-          { type: 'response_headers', config: { name: 'x-resp', action: 'set', value: 'hello' } },
+          {
+            type: 'response_headers',
+            config: { name: 'x-resp', action: 'set', value: 'hello' },
+          },
         ],
         upstreams: tcpUpstream(upstream.port),
       }))
@@ -181,7 +226,14 @@ describe('middleware: response_headers', () => {
         id: nextRouteId('rsh-default'),
         matcher: { rule: "PathPrefix('/rsh/default')", priority: 50 },
         middlewares: [
-          { type: 'response_headers', config: { name: 'x-rdefault', action: 'set_default', value: 'fallback' } },
+          {
+            type: 'response_headers',
+            config: {
+              name: 'x-rdefault',
+              action: 'set_default',
+              value: 'fallback',
+            },
+          },
         ],
         upstreams: tcpUpstream(upstream.port),
       }))
@@ -216,7 +268,10 @@ describe('middleware: response_headers', () => {
         id: nextRouteId('rsh-append'),
         matcher: { rule: "PathPrefix('/rsh/append')", priority: 50 },
         middlewares: [
-          { type: 'response_headers', config: { name: 'x-tags', action: 'append', value: 'proxy' } },
+          {
+            type: 'response_headers',
+            config: { name: 'x-tags', action: 'append', value: 'proxy' },
+          },
         ],
         upstreams: tcpUpstream(upstream.port),
       }))
@@ -232,6 +287,32 @@ describe('middleware: response_headers', () => {
       await res.text()
       assert.match(res.headers.get('x-tags') ?? '', /^origin,\s*proxy$/)
       upstream.resetHandler()
+    })
+  })
+
+  describe('expression', () => {
+    before(() => {
+      cleanups.push(withRoute(server, {
+        id: nextRouteId('rsh-expr'),
+        matcher: { rule: "PathPrefix('/rsh/expression')", priority: 50 },
+        middlewares: [
+          {
+            type: 'response_headers',
+            config: {
+              name: 'x-rsh-expr',
+              action: 'set',
+              expression: "PathValue() + '-' + HeaderValue('x-user')",
+            },
+          },
+        ],
+        upstreams: tcpUpstream(upstream.port),
+      }))
+    })
+
+    it('sets response header from CEL expression', async () => {
+      const res = await proxyFetch(proxyPort, '/rsh/expression/test', { headers: { 'x-user': 'u9' } })
+      await res.text()
+      assertHeader(res, 'x-rsh-expr', '/rsh/expression/test-u9')
     })
   })
 })

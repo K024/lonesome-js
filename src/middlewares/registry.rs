@@ -14,12 +14,14 @@ use crate::middlewares::respond::{RespondConfig, RespondMiddleware};
 use crate::middlewares::response_headers::{ResponseHeadersConfig, ResponseHeadersMiddleware};
 use crate::middlewares::rewrite::{RewriteConfig, RewriteMiddleware};
 use crate::middlewares::rewrite_method::{RewriteMethodConfig, RewriteMethodMiddleware};
+use crate::middlewares::set_variable::{SetVariableConfig, SetVariableMiddleware};
 use crate::middlewares::Middleware;
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum MiddlewareType {
   RewriteMethod(RewriteMethodConfig),
+  SetVariable(SetVariableConfig),
   BasicAuth(BasicAuthConfig),
   RequestHeaders(RequestHeadersConfig),
   ResponseHeaders(ResponseHeadersConfig),
@@ -39,6 +41,7 @@ pub fn build_middleware(cfg: &MiddlewareConfig) -> Result<Box<dyn Middleware>, S
     MiddlewareType::RewriteMethod(v) => {
       Ok(Box::new(RewriteMethodMiddleware::from_config(v.clone())?))
     }
+    MiddlewareType::SetVariable(v) => Ok(Box::new(SetVariableMiddleware::from_config(v.clone())?)),
     MiddlewareType::BasicAuth(v) => Ok(Box::new(BasicAuthMiddleware::from_config(v.clone())?)),
     MiddlewareType::RequestHeaders(v) => {
       Ok(Box::new(RequestHeadersMiddleware::from_config(v.clone())?))

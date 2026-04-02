@@ -148,3 +148,19 @@ pub fn ensure_context<'a>(session: &Session, proxy_ctx: &'a mut ProxyCtx) -> &'a
   let data = ensure_session_cel_context(session, proxy_ctx);
   data.cel_ctx.as_ref()
 }
+
+pub fn ensure_context_mut<'a>(
+  session: &Session,
+  proxy_ctx: &'a mut ProxyCtx,
+) -> &'a mut Context<'static> {
+  if proxy_ctx.session_cel_context.is_none() {
+    proxy_ctx.session_cel_context = Some(read_session_cel_context(session));
+  }
+
+  proxy_ctx
+    .session_cel_context
+    .as_mut()
+    .expect("session cel context initialized")
+    .cel_ctx
+    .as_mut()
+}

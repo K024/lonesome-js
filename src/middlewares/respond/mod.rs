@@ -28,8 +28,7 @@ impl RespondConfig {
 
     if self.body.is_some() && self.body_expression.is_some() {
       return Err(
-        "middleware respond.body and respond.body_expression cannot both be set"
-          .to_string(),
+        "middleware respond.body and respond.body_expression cannot both be set".to_string(),
       );
     }
 
@@ -92,10 +91,7 @@ impl RespondMiddleware {
 
     let ctx = ensure_context(session, proxy_ctx);
     let value = program.execute(ctx).map_err(|e| {
-      middleware_internal_error(
-        "respond evaluate body_expression failed",
-        e.to_string(),
-      )
+      middleware_internal_error("respond evaluate body_expression failed", e.to_string())
     })?;
 
     match value {

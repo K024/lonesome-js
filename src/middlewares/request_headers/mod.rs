@@ -11,19 +11,20 @@ use crate::middlewares::Middleware;
 use crate::proxy::ctx::ProxyCtx;
 
 #[derive(Clone, Debug, Deserialize)]
-#[serde(tag = "action", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
 pub enum RequestHeadersActionConfig {
-  Append { value: String },
-  Set { value: String },
-  SetDefault { value: String },
+  Append,
+  Set,
+  SetDefault,
   Remove,
 }
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct RequestHeadersConfig {
   pub name: String,
-  #[serde(flatten)]
   pub action: RequestHeadersActionConfig,
+  pub value: Option<String>,
+  pub expression: Option<String>,
   pub rule: Option<String>,
 }
 
@@ -33,25 +34,56 @@ impl RequestHeadersConfig {
       return Err("middleware request_headers.name cannot be empty".to_string());
     }
 
-    match &self.action {
-      RequestHeadersActionConfig::Append { value }
-      | RequestHeadersActionConfig::Set { value }
-      | RequestHeadersActionConfig::SetDefault { value } => {
-        if value.is_empty() {
-          return Err("middleware request_headers.value cannot be empty".to_string());
+    match self.action {
+      RequestHeadersActionConfig::Append
+      | RequestHeadersActionConfig::Set
+      | RequestHeadersActionConfig::SetDefault => match (&self.value, &self.expression) {
+        (Some(_), Some(_)) => {
+          return Err(
+            "middleware request_headers.value and request_headers.expression cannot both be set"
+              .to_string(),
+          );
+        }
+        (None, None) => {
+          return Err(
+            "middleware request_headers.value or request_headers.expression is required"
+              .to_string(),
+          );
+        }
+        (Some(value), None) => {
+          if value.is_empty() {
+            return Err("middleware request_headers.value cannot be empty".to_string());
+          }
+        }
+        (None, Some(expression)) => {
+          if expression.trim().is_empty() {
+            return Err("middleware request_headers.expression cannot be empty".to_string());
+          }
+        }
+      },
+      RequestHeadersActionConfig::Remove => {
+        if self.value.is_some() || self.expression.is_some() {
+          return Err(
+            "middleware request_headers.value/expression is not allowed for remove action"
+              .to_string(),
+          );
         }
       }
-      RequestHeadersActionConfig::Remove => {}
     }
 
     Ok(())
   }
 }
 
+enum RequestHeadersValue {
+  Value(String),
+  Expression(Program),
+}
+
 enum RequestHeadersAction {
-  Append { value: String },
-  Set { value: String },
-  SetDefault { value: String },
+  Append { value: RequestHeadersValue },
+  Set { value: RequestHeadersValue },
+  SetDefault { value: RequestHeadersValue },
   Remove,
 }
 
@@ -62,15 +94,37 @@ pub struct RequestHeadersMiddleware {
 }
 
 impl RequestHeadersMiddleware {
+  fn from_value_fields(
+    value: Option<String>,
+    expression: Option<String>,
+  ) -> Result<RequestHeadersValue, String> {
+    match (value, expression) {
+      (Some(value), None) => Ok(RequestHeadersValue::Value(value)),
+      (None, Some(expression)) => {
+        let program = Program::compile(&expression).map_err(|e| {
+          format!("failed to compile request_headers expression '{expression}': {e}")
+        })?;
+        Ok(RequestHeadersValue::Expression(program))
+      }
+      _ => Err(
+        "middleware request_headers.value or request_headers.expression is required".to_string(),
+      ),
+    }
+  }
+
   pub fn from_config(cfg: RequestHeadersConfig) -> Result<Self, String> {
     cfg.validate()?;
 
     let action = match cfg.action {
-      RequestHeadersActionConfig::Append { value } => RequestHeadersAction::Append { value },
-      RequestHeadersActionConfig::Set { value } => RequestHeadersAction::Set { value },
-      RequestHeadersActionConfig::SetDefault { value } => {
-        RequestHeadersAction::SetDefault { value }
-      }
+      RequestHeadersActionConfig::Append => RequestHeadersAction::Append {
+        value: Self::from_value_fields(cfg.value.clone(), cfg.expression.clone())?,
+      },
+      RequestHeadersActionConfig::Set => RequestHeadersAction::Set {
+        value: Self::from_value_fields(cfg.value.clone(), cfg.expression.clone())?,
+      },
+      RequestHeadersActionConfig::SetDefault => RequestHeadersAction::SetDefault {
+        value: Self::from_value_fields(cfg.value.clone(), cfg.expression.clone())?,
+      },
       RequestHeadersActionConfig::Remove => RequestHeadersAction::Remove,
     };
 
@@ -99,19 +153,57 @@ impl RequestHeadersMiddleware {
     matches!(program.execute(ctx), Ok(Value::Bool(true)))
   }
 
-  fn apply(&self, upstream_request: &mut RequestHeader) -> Result<()> {
+  fn value_string(
+    &self,
+    proxy_ctx: &mut ProxyCtx,
+    session: &Session,
+    value: &RequestHeadersValue,
+  ) -> Result<String> {
+    match value {
+      RequestHeadersValue::Value(v) => Ok(v.clone()),
+      RequestHeadersValue::Expression(program) => {
+        let ctx = ensure_context(session, proxy_ctx);
+        let v = program.execute(ctx).map_err(|e| {
+          middleware_internal_error("request_headers expression execution failed", e.to_string())
+        })?;
+        match v {
+          Value::String(s) => Ok(s.to_string()),
+          other => Err(middleware_internal_error(
+            "request_headers expression must return string",
+            format!("got {other:?}"),
+          )),
+        }
+      }
+    }
+  }
+
+  fn apply(
+    &self,
+    proxy_ctx: &mut ProxyCtx,
+    session: &Session,
+    upstream_request: &mut RequestHeader,
+  ) -> Result<()> {
     match &self.action {
       RequestHeadersAction::Append { value } => upstream_request
-        .append_header(self.name.clone(), value.clone())
+        .append_header(
+          self.name.clone(),
+          self.value_string(proxy_ctx, session, value)?,
+        )
         .map(|_| ())
         .map_err(|e| middleware_internal_error("request_headers append failed", e.to_string())),
       RequestHeadersAction::Set { value } => upstream_request
-        .insert_header(self.name.clone(), value.clone())
+        .insert_header(
+          self.name.clone(),
+          self.value_string(proxy_ctx, session, value)?,
+        )
         .map_err(|e| middleware_internal_error("request_headers set failed", e.to_string())),
       RequestHeadersAction::SetDefault { value } => {
         if upstream_request.headers.get(self.name.as_str()).is_none() {
           upstream_request
-            .insert_header(self.name.clone(), value.clone())
+            .insert_header(
+              self.name.clone(),
+              self.value_string(proxy_ctx, session, value)?,
+            )
             .map_err(|e| {
               middleware_internal_error("request_headers set_default failed", e.to_string())
             })?;
@@ -138,6 +230,6 @@ impl Middleware for RequestHeadersMiddleware {
       return Ok(());
     }
 
-    self.apply(upstream_request)
+    self.apply(proxy_ctx, session, upstream_request)
   }
 }

@@ -13,6 +13,7 @@ pub mod respond;
 pub mod response_headers;
 pub mod rewrite;
 pub mod rewrite_method;
+pub mod set_variable;
 
 pub use middleware::Middleware;
 pub use registry::MiddlewareType;
