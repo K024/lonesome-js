@@ -10,9 +10,10 @@ use crate::middlewares::middleware::middleware_internal_error;
 use crate::middlewares::Middleware;
 use crate::proxy::ctx::ProxyCtx;
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum SetVariableStageConfig {
+  #[default]
   Request,
   UpstreamResponse,
   Response,
@@ -22,6 +23,7 @@ pub enum SetVariableStageConfig {
 pub struct SetVariableConfig {
   pub name: String,
   pub expression: String,
+  #[serde(default)]
   pub stage: SetVariableStageConfig,
   pub rule: Option<String>,
 }

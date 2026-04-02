@@ -23,6 +23,38 @@ after(async () => {
 })
 
 describe('middleware: set_variable', () => {
+  describe('default stage', () => {
+    before(() => {
+      cleanups.push(withRoute(server, {
+        id: nextRouteId('setvar-default-stage'),
+        matcher: { rule: "PathPrefix('/setvar/default-stage')", priority: 50 },
+        middlewares: [
+          {
+            type: 'set_variable',
+            config: {
+              name: 'default_tag',
+              expression: "MethodValue() + '-' + QueryValue('id')",
+            },
+          },
+          {
+            type: 'request_headers',
+            config: {
+              name: 'x-default-stage',
+              action: 'set',
+              expression: 'default_tag',
+            },
+          },
+        ],
+        upstreams: tcpUpstream(upstream.port),
+      }))
+    })
+
+    it('uses request stage by default when stage is omitted', async () => {
+      const { body } = await getJson(proxyPort, '/setvar/default-stage/test?id=7', { method: 'POST' })
+      assert.strictEqual(body.headers['x-default-stage'], 'POST-7')
+    })
+  })
+
   describe('basic variable write', () => {
     before(() => {
       cleanups.push(withRoute(server, {
@@ -127,6 +159,47 @@ describe('middleware: set_variable', () => {
       await res.text()
       assertHeader(res, 'x-origin-path', '/setvar/upstream-response/demo')
     })
+
+    it('can read upstream response status/header in expression', async () => {
+      upstream.setHandler((_req, res) => {
+        res.setHeader('x-from-upstream', 'uv')
+        res.statusCode = 202
+        res.end('ok')
+      })
+
+      const id = nextRouteId('setvar-upstream-meta')
+      const clean = withRoute(server, {
+        id,
+        matcher: { rule: "PathPrefix('/setvar/upstream-meta')", priority: 50 },
+        middlewares: [
+          {
+            type: 'set_variable',
+            config: {
+              name: 'up_meta',
+              stage: 'upstream_response',
+              expression: "string(ResponseStatusValue()) + '|' + ResponseHeaderValue('x-from-upstream')",
+            },
+          },
+          {
+            type: 'response_headers',
+            config: {
+              name: 'x-up-meta',
+              action: 'set',
+              expression: 'up_meta',
+            },
+          },
+        ],
+        upstreams: tcpUpstream(upstream.port),
+      })
+
+      const res = await proxyFetch(proxyPort, '/setvar/upstream-meta/test')
+      await res.text()
+      assert.strictEqual(res.status, 202)
+      assertHeader(res, 'x-up-meta', '202|uv')
+
+      clean()
+      upstream.resetHandler()
+    })
   })
 
   describe('response stage', () => {
@@ -160,6 +233,44 @@ describe('middleware: set_variable', () => {
       const res = await proxyFetch(proxyPort, '/setvar/response/demo')
       await res.text()
       assertHeader(res, 'x-resp-tag', 'resp-/setvar/response/demo')
+    })
+
+    it('respects rule in response stage', async () => {
+      const id = nextRouteId('setvar-response-rule')
+      const clean = withRoute(server, {
+        id,
+        matcher: { rule: "PathPrefix('/setvar/response-rule')", priority: 80 },
+        middlewares: [
+          {
+            type: 'set_variable',
+            config: {
+              name: 'resp_gate',
+              stage: 'response',
+              expression: "'hit'",
+              rule: "Query('apply', '1')",
+            },
+          },
+          {
+            type: 'response_headers',
+            config: {
+              name: 'x-resp-gate',
+              action: 'set_default',
+              expression: 'resp_gate',
+            },
+          },
+        ],
+        upstreams: tcpUpstream(upstream.port),
+      })
+
+      const res1 = await proxyFetch(proxyPort, '/setvar/response-rule/test?apply=1')
+      await res1.text()
+      assertHeader(res1, 'x-resp-gate', 'hit')
+
+      const res2 = await proxyFetch(proxyPort, '/setvar/response-rule/test')
+      await res2.text()
+      assert.strictEqual(res2.headers.get('x-resp-gate'), null)
+
+      clean()
     })
   })
 })

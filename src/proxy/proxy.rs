@@ -209,6 +209,12 @@ impl ProxyHttp for DenaliProxy {
       return Ok(());
     };
 
+    if let Some(cel_session_ctx) = &mut ctx.session_cel_context {
+      cel_session_ctx
+        .cel_http_session
+        .set_upstream_res_header(Some(upstream_response.clone()));
+    }
+
     for middleware in route.middlewares() {
       middleware
         .upstream_response_filter(ctx, session, upstream_response)

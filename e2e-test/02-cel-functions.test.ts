@@ -64,6 +64,51 @@ describe('CEL functions with respond middleware', () => {
   })
 })
 
+describe('CEL response functions', () => {
+  before(() => {
+    upstream.setHandler((_req, res) => {
+      res.setHeader('x-from-upstream', 'up-v')
+      res.statusCode = 201
+      res.end('upstream')
+    })
+
+    cleanups.push(withRoute(server, {
+      id: nextRouteId('cel-funcs-resp'),
+      matcher: { rule: "PathPrefix('/cel/respfn')", priority: 70 },
+      middlewares: [
+        {
+          type: 'set_variable',
+          config: {
+            name: 'up_meta',
+            stage: 'upstream_response',
+            expression: "string(ResponseStatusValue()) + '|' + ResponseHeaderValue('x-from-upstream')",
+          },
+        },
+        {
+          type: 'response_headers',
+          config: {
+            name: 'x-up-meta',
+            action: 'set',
+            expression: 'up_meta',
+          },
+        },
+      ],
+      upstreams: tcpUpstream(upstream.port),
+    }))
+  })
+
+  after(() => {
+    upstream.resetHandler()
+  })
+
+  it('supports ResponseStatusValue and ResponseHeaderValue', async () => {
+    const res = await proxyFetch(proxyPort, '/cel/respfn/test')
+    await res.text()
+    assert.strictEqual(res.status, 201)
+    assert.strictEqual(res.headers.get('x-up-meta'), '201|up-v')
+  })
+})
+
 describe('CEL predicates in rule fields', () => {
   describe('request_headers rule with HeaderRegexp and QueryRegexp', () => {
     before(() => {

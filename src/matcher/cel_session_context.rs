@@ -1,9 +1,9 @@
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use cel::objects::{Opaque, OpaqueEq};
 use cel::{Context, Value};
 use percent_encoding;
-use pingora::http::RequestHeader;
+use pingora::http::{RequestHeader, ResponseHeader};
 use pingora::protocols::l4::socket::SocketAddr;
 use pingora::proxy::Session;
 
@@ -14,9 +14,10 @@ use super::cel_common::parent_context;
 
 const CEL_HTTP_SESSION_KEY: &str = "_cel_http_session";
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct CelHttpSession {
   req_header: RequestHeader,
+  upstream_res_header: RwLock<Option<ResponseHeader>>,
   client_addr: Option<SocketAddr>,
   tls_sni: Option<String>,
 }
@@ -48,8 +49,15 @@ impl CelHttpSession {
     Self {
       // TODO: borrow req_header when cel-rust supports it
       req_header: session.req_header().clone(),
+      upstream_res_header: RwLock::new(None),
       client_addr: session.as_downstream().client_addr().cloned(),
       tls_sni,
+    }
+  }
+
+  pub fn set_upstream_res_header(&self, header: Option<ResponseHeader>) {
+    if let Ok(mut lock) = self.upstream_res_header.write() {
+      *lock = header;
     }
   }
 
@@ -100,10 +108,37 @@ impl CelHttpSession {
       .map(|addr| addr.ip().to_string())
       .unwrap_or_default()
   }
+
+  // response values
+
+  pub fn response_status_value(&self) -> i64 {
+    self
+      .upstream_res_header
+      .read()
+      .ok()
+      .and_then(|lock| lock.as_ref().map(|h| i64::from(h.status.as_u16())))
+      .unwrap_or(0)
+  }
+
+  pub fn response_header_value(&self, key: &str) -> String {
+    self
+      .upstream_res_header
+      .read()
+      .ok()
+      .and_then(|lock| {
+        lock
+          .as_ref()
+          .and_then(|h| h.headers.get(key))
+          .and_then(|v| v.to_str().ok())
+          .map(|v| v.to_string())
+      })
+      .unwrap_or_default()
+  }
 }
 
 pub struct SessionCelContext {
   pub cel_ctx: Box<Context<'static>>,
+  pub cel_http_session: Arc<CelHttpSession>,
 }
 
 fn read_session_cel_context(session: &Session) -> SessionCelContext {
@@ -112,10 +147,11 @@ fn read_session_cel_context(session: &Session) -> SessionCelContext {
   let mut cel_ctx = parent_context().new_inner_scope();
   cel_ctx.add_variable_from_value(
     CEL_HTTP_SESSION_KEY,
-    Value::Opaque(cel_session as Arc<dyn Opaque>),
+    Value::Opaque(cel_session.clone() as Arc<dyn Opaque>),
   );
 
   SessionCelContext {
+    cel_http_session: cel_session,
     cel_ctx: Box::new(cel_ctx),
   }
 }

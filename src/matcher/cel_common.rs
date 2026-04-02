@@ -163,6 +163,14 @@ fn client_ip_value(ftx: &FunctionContext) -> String {
   with_session(ftx, |s| s.client_ip()).unwrap_or_default()
 }
 
+fn response_status_value(ftx: &FunctionContext) -> i64 {
+  with_session(ftx, |s| s.response_status_value()).unwrap_or(0)
+}
+
+fn response_header_value(ftx: &FunctionContext, key: Arc<String>) -> String {
+  with_session(ftx, |s| s.response_header_value(key.as_str())).unwrap_or_default()
+}
+
 fn client_ip_matches(actual: &str, expected: &str) -> bool {
   let Ok(actual_ip) = actual.parse::<IpAddr>() else {
     return false;
@@ -194,6 +202,7 @@ pub fn parent_context() -> &'static Context<'static> {
     ctx.add_function("QueryRegexp", query_regexp);
     ctx.add_function("ClientIP", client_ip);
 
+    // Value functions
     // TODO: update getters to return Option<T>
     ctx.add_function("HeaderValue", header_value);
     ctx.add_function("HostValue", host_value);
@@ -201,6 +210,10 @@ pub fn parent_context() -> &'static Context<'static> {
     ctx.add_function("PathValue", path_value);
     ctx.add_function("QueryValue", query_value);
     ctx.add_function("ClientIPValue", client_ip_value);
+
+    // Response functions
+    ctx.add_function("ResponseStatusValue", response_status_value);
+    ctx.add_function("ResponseHeaderValue", response_header_value);
 
     ctx
   })
