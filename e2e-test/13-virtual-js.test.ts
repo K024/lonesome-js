@@ -93,7 +93,7 @@ describe('virtual_js upstream', () => {
     vjs2.stop()
     const res2 = await proxyFetch(proxyPort, '/vjs/unreg/test')
     await res2.text()
-    assert.notStrictEqual(res2.status, 200, 'expected non-200 after listener unregistered')
+    assert.strictEqual(res2.status, 502)
 
     clean()
   })

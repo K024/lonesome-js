@@ -147,9 +147,9 @@ describe('middleware: cache', () => {
       const res2 = await proxyFetch(proxyPort, '/cache/nostore/item')
       const status2 = res2.headers.get('cdn-cache-status')
       await res2.text()
-      assert.notStrictEqual(status1, 'hit')
-      assert.notStrictEqual(status2, 'hit')
-      assert.ok(callCount >= 2, `upstream should be called at least twice, got ${callCount}`)
+      assert.strictEqual(status1, 'bypass')
+      assert.strictEqual(status2, 'bypass')
+      assert.strictEqual(callCount, 2, `expected upstream called twice, got ${callCount}`)
     })
   })
 
@@ -175,12 +175,65 @@ describe('middleware: cache', () => {
 
     it('Vary: * response is not cached', async () => {
       const res1 = await proxyFetch(proxyPort, '/cache/vary/item')
+      const status1 = res1.headers.get('cdn-cache-status')
       await res1.text()
       const res2 = await proxyFetch(proxyPort, '/cache/vary/item')
+      const status2 = res2.headers.get('cdn-cache-status')
       await res2.text()
-      assert.notStrictEqual(res1.headers.get('cdn-cache-status'), 'hit')
-      assert.notStrictEqual(res2.headers.get('cdn-cache-status'), 'hit')
-      assert.ok(callCount >= 2, `expected upstream called at least twice, got ${callCount}`)
+      assert.strictEqual(status1, 'bypass')
+      assert.strictEqual(status2, 'bypass')
+      assert.strictEqual(callCount, 2, `expected upstream called twice, got ${callCount}`)
+    })
+  })
+
+  describe('rule-based cache enablement', () => {
+    let callCount = 0
+
+    before(() => {
+      callCount = 0
+      upstream.setHandler((_req, res) => {
+        callCount++
+        res.setHeader('cache-control', 'public, max-age=60')
+        res.setHeader('content-type', 'text/plain')
+        res.end(`body-${callCount}`)
+      })
+
+      cleanups.push(withRoute(server, {
+        id: nextRouteId('cache-rule'),
+        matcher: { rule: "PathPrefix('/cache/rule')", priority: 50 },
+        middlewares: [
+          {
+            type: 'cache',
+            config: {
+              max_ttl_secs: 60,
+              inject_cache_headers: true,
+              rule: "Query('cache', '1')",
+            },
+          },
+        ],
+        upstreams: tcpUpstream(upstream.port),
+      }))
+    })
+    after(() => upstream.resetHandler())
+
+    it('enables cache only when rule matches', async () => {
+      const miss = await proxyFetch(proxyPort, '/cache/rule/item?cache=1')
+      const missText = await miss.text()
+      assert.strictEqual(miss.headers.get('cdn-cache-status'), 'miss')
+
+      const hit = await proxyFetch(proxyPort, '/cache/rule/item?cache=1')
+      const hitText = await hit.text()
+      assert.strictEqual(hit.headers.get('cdn-cache-status'), 'hit')
+      assert.strictEqual(hitText, missText)
+
+      const bypass1 = await proxyFetch(proxyPort, '/cache/rule/item')
+      await bypass1.text()
+      const bypass2 = await proxyFetch(proxyPort, '/cache/rule/item')
+      await bypass2.text()
+      assert.strictEqual(bypass1.headers.get('cdn-cache-status'), null)
+      assert.strictEqual(bypass2.headers.get('cdn-cache-status'), null)
+
+      assert.strictEqual(callCount >= 3, true, `expected upstream called at least 3 times, got ${callCount}`)
     })
   })
 })

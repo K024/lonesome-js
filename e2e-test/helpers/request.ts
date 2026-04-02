@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
 import { request as httpRequest, IncomingMessage } from 'node:http'
+import { request as httpsRequest } from 'node:https'
+import type { Agent as HttpsAgent } from 'node:https'
 
 export function proxyUrl(port: number, path: string): string {
   return `http://127.0.0.1:${port}${path}`
@@ -78,6 +80,14 @@ type RawHttpRequestOptions = {
   body?: string | Buffer
 }
 
+type RawHttpsRequestOptions = {
+  method?: string
+  host?: string
+  headers?: Record<string, string>
+  body?: string | Buffer
+  agent?: HttpsAgent
+}
+
 /**
  * Make raw HTTP request and return undecoded bytes.
  * Use this when http host header/response compression behavior is under test.
@@ -133,4 +143,42 @@ export async function requestWithCustomHost(
   })
 
   return { response, body: body.toString('utf8') }
+}
+
+/**
+ * Make raw HTTPS request and return undecoded bytes.
+ * Use this when testing TLS listeners and custom HTTPS agents.
+ */
+export async function requestRawHttps(
+  port: number,
+  path: string,
+  options?: RawHttpsRequestOptions,
+): Promise<{ response: IncomingMessage; body: Buffer }> {
+  return await new Promise<{ response: IncomingMessage; body: Buffer }>((resolve, reject) => {
+    const req = httpsRequest(
+      {
+        host: options?.host ?? '127.0.0.1',
+        port,
+        path,
+        method: options?.method ?? 'GET',
+        headers: options?.headers,
+        agent: options?.agent,
+      },
+      (res) => {
+        const chunks: Buffer[] = []
+        res.on('data', (chunk) => {
+          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+        })
+        res.on('end', () => resolve({ response: res, body: Buffer.concat(chunks) }))
+      },
+    )
+
+    req.on('error', reject)
+
+    if (options?.body) {
+      req.write(options.body)
+    }
+
+    req.end()
+  })
 }

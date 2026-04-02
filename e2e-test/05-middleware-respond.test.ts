@@ -52,7 +52,7 @@ describe('middleware: respond', () => {
     before(() => {
       cleanups.push(withRoute(server, {
         id: nextRouteId('respond-body'),
-        matcher: { rule: "PathPrefix('/respond/body')", priority: 50 },
+        matcher: { rule: "Path('/respond/body')", priority: 50 },
         middlewares: [
           { type: 'respond', config: { status: 200, body: 'hello respond', content_type: 'text/plain; charset=utf-8' } },
         ],
@@ -69,6 +69,40 @@ describe('middleware: respond', () => {
       const res = await proxyFetch(proxyPort, '/respond/body')
       await res.text()
       assertHeader(res, 'content-type', 'text/plain; charset=utf-8')
+    })
+  })
+
+  describe('with body_expression (CEL)', () => {
+    before(() => {
+      cleanups.push(withRoute(server, {
+        id: nextRouteId('respond-body-cel'),
+        matcher: { rule: "PathPrefix('/respond/body-cel')", priority: 50 },
+        middlewares: [
+          {
+            type: 'respond',
+            config: {
+              status: 200,
+              body_expression: "MethodValue() + ' ' + PathValue() + '?' + QueryValue('q')",
+              content_type: 'text/plain; charset=utf-8',
+            },
+          },
+        ],
+        upstreams: tcpUpstream(upstream.port),
+      }))
+    })
+
+    it('evaluates CEL expression into response body', async () => {
+      const res = await proxyFetch(proxyPort, '/respond/body-cel/demo/path?q=xyz')
+      const text = await res.text()
+      assert.strictEqual(res.status, 200)
+      assert.strictEqual(text, 'GET /respond/body-cel/demo/path?xyz')
+      assertHeader(res, 'content-type', 'text/plain; charset=utf-8')
+    })
+
+    it('body_expression can use method for POST requests', async () => {
+      const res = await proxyFetch(proxyPort, '/respond/body-cel/demo/path?q=post', { method: 'POST' })
+      const text = await res.text()
+      assert.strictEqual(text, 'POST /respond/body-cel/demo/path?post')
     })
   })
 

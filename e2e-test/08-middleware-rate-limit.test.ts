@@ -51,12 +51,12 @@ describe('middleware: rate_limit', () => {
 
     it('allows windowed requests through', async () => {
       const statuses = await burstStatuses('/rl/ip/test', WINDOW_ALLOWANCE)
-      assert.strictEqual(statuses.every(s => s === 200), true)
+      assert.strictEqual(statuses.every((s) => s === 200), true)
     })
 
     it('returns 429 when requests exceed observe-window quota', async () => {
       const statuses = await burstStatuses('/rl/ip/test', WINDOW_ALLOWANCE + 12)
-      assert.ok(statuses.includes(429), `expected at least one 429, got: ${statuses.join(',')}`)
+      assert.strictEqual(statuses.includes(429), true, `expected at least one 429, got: ${statuses.join(',')}`)
     })
 
     it('429 response includes rate-limit headers', async () => {
@@ -69,10 +69,10 @@ describe('middleware: rate_limit', () => {
           await res.text()
         }
       }
-      assert.ok(found429, 'expected a 429 response')
-      assert.ok(found429!.headers.get('x-ratelimit-limit') !== null, 'x-ratelimit-limit should be present')
-      assert.ok(found429!.headers.get('x-ratelimit-remaining') !== null, 'x-ratelimit-remaining should be present')
-      assert.ok(found429!.headers.get('x-ratelimit-reset') !== null, 'x-ratelimit-reset should be present')
+      assert.strictEqual(found429 === null, false, 'expected a 429 response')
+      assert.strictEqual(found429!.headers.get('x-ratelimit-limit'), String(WINDOW_ALLOWANCE))
+      assert.strictEqual(found429!.headers.get('x-ratelimit-remaining'), '0')
+      assert.strictEqual(found429!.headers.get('x-ratelimit-reset'), String(OBSERVE_SECONDS))
       await found429!.text()
     })
   })
@@ -91,7 +91,7 @@ describe('middleware: rate_limit', () => {
       const statusesA = await burstStatuses('/rl/hdr/test', WINDOW_ALLOWANCE + 12, { headers: { 'x-user-id': 'user-a' } })
       const resB = await proxyFetch(proxyPort, '/rl/hdr/test', { headers: { 'x-user-id': 'user-b' } })
       await resB.text()
-      assert.ok(statusesA.includes(429), 'user-a should be rate limited')
+      assert.strictEqual(statusesA.includes(429), true, 'user-a should be rate limited')
       assert.strictEqual(resB.status, 200)
     })
   })
@@ -110,7 +110,7 @@ describe('middleware: rate_limit', () => {
 
     it('CEL expression key is evaluated for rate limiting', async () => {
       const statuses = await burstStatuses('/rl/expr/test', WINDOW_ALLOWANCE + 12, { headers: { 'x-tenant': 'tenant-1' } })
-      assert.ok(statuses.includes(429), 'expected rate limiting by CEL key')
+      assert.strictEqual(statuses.includes(429), true, 'expected rate limiting by CEL key')
     })
   })
 
@@ -126,7 +126,47 @@ describe('middleware: rate_limit', () => {
 
     it('bypasses rate limiting when header key is absent', async () => {
       const statuses = await burstStatuses('/rl/bypass/test', WINDOW_ALLOWANCE + 12)
-      assert.ok(!statuses.includes(429), `expected no 429 without key, got: ${statuses.join(',')}`)
+      assert.strictEqual(statuses.includes(429), false, `expected no 429 without key, got: ${statuses.join(',')}`)
+    })
+  })
+
+  describe('custom status and headers toggle', () => {
+    before(() => {
+      cleanups.push(withRoute(server, {
+        id: nextRouteId('rl-custom-status'),
+        matcher: { rule: "PathPrefix('/rl/custom')", priority: 50 },
+        middlewares: [
+          {
+            type: 'rate_limit',
+            config: {
+              mode: 'header',
+              header_name: 'x-limit-key',
+              max_rps: 0.1,
+              status: 430,
+              include_headers: false,
+            },
+          },
+        ],
+        upstreams: tcpUpstream(upstream.port),
+      }))
+    })
+
+    it('uses custom status and omits rate-limit headers when include_headers=false', async () => {
+      let limited: Response | null = null
+      for (let i = 0; i < 30 && !limited; i++) {
+        const res = await proxyFetch(proxyPort, '/rl/custom/test', { headers: { 'x-limit-key': 'u1' } })
+        if (res.status === 430) {
+          limited = res
+        } else {
+          await res.text()
+        }
+      }
+
+      assert.strictEqual(limited === null, false, 'expected to receive custom limited status 430')
+      assert.strictEqual(limited!.headers.get('x-ratelimit-limit'), null)
+      assert.strictEqual(limited!.headers.get('x-ratelimit-remaining'), null)
+      assert.strictEqual(limited!.headers.get('x-ratelimit-reset'), null)
+      await limited!.text()
     })
   })
 })

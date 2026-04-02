@@ -66,8 +66,7 @@ describe('middleware: cors', () => {
         headers: { origin: 'https://app.example.com', 'access-control-request-method': 'GET' },
       })
       await res.text()
-      const methods = res.headers.get('access-control-allow-methods') ?? ''
-      assert.ok(methods.length > 0, 'access-control-allow-methods should be present')
+      assertHeader(res, 'access-control-allow-methods', 'GET,POST')
     })
     it('preflight response contains max-age', async () => {
       const res = await proxyFetch(proxyPort, '/cors/exact/api', {
@@ -102,15 +101,15 @@ describe('middleware: cors', () => {
       const { response } = await requestWithCustomHost(proxyPort, '/cors/reflect/api', 'myapp.local', {
         headers: { origin: 'https://myapp.local' },
       })
-      const origin = response.headers['access-control-allow-origin'] ?? ''
-      assert.ok(origin.includes('myapp.local'), `expected myapp.local in origin, got ${origin}`)
+      const origin = String(response.headers['access-control-allow-origin'] ?? '')
+      assert.strictEqual(origin, 'https://myapp.local')
     })
     it('adds Vary: host', async () => {
       const { response } = await requestWithCustomHost(proxyPort, '/cors/reflect/api', 'myapp.local', {
         headers: { origin: 'https://myapp.local' },
       })
-      const vary = response.headers['vary'] ?? ''
-      assert.ok(vary.toLowerCase().includes('host'), `expected 'host' in Vary, got ${vary}`)
+      const vary = String(response.headers['vary'] ?? '')
+      assert.match(vary, /(^|,\s*)host(\s*,|$)/i, `expected 'host' token in Vary, got ${vary}`)
     })
   })
 
@@ -158,8 +157,7 @@ describe('middleware: cors', () => {
         headers: { origin: 'https://client.example.com' },
       })
       await res.text()
-      const expose = res.headers.get('access-control-expose-headers') ?? ''
-      assert.ok(expose.length > 0, 'access-control-expose-headers should be present')
+      assertHeader(res, 'access-control-expose-headers', 'x-request-id,x-trace')
     })
   })
 })

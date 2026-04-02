@@ -1,6 +1,7 @@
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { DenaliServer } from '../../dist/index.js'
+import type { NapiStartupConfig } from '../../dist/index.js'
 
 /**
  * Find a free TCP port by binding a probe server to port 0,
@@ -21,10 +22,14 @@ export async function pickFreePort(): Promise<number> {
  * Returns the server instance and the port it is listening on.
  * The caller is responsible for calling server.stop() in after().
  */
-export async function startProxy(): Promise<{ server: DenaliServer; port: number }> {
+export async function startProxy(startup?: NapiStartupConfig): Promise<{ server: DenaliServer; port: number }> {
   const port = await pickFreePort()
   const server = new DenaliServer()
-  server.start({ listeners: [{ kind: 'tcp', addr: `127.0.0.1:${port}` }] })
+  const defaultStartup: NapiStartupConfig = {
+    listeners: [{ kind: 'tcp', addr: `127.0.0.1:${port}` }],
+  }
+
+  server.start(startup ?? defaultStartup)
   await sleep(600) // wait for Pingora runtime to become ready
   return { server, port }
 }

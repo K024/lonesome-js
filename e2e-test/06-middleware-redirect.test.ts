@@ -135,8 +135,7 @@ describe('middleware: redirect_https', () => {
       const res = await proxyFetch(proxyPort, '/redir/https/page', { redirect: 'manual' })
       await res.text()
       assert.strictEqual(res.status, 301)
-      const loc = res.headers.get('location') ?? ''
-      assert.ok(loc.startsWith('https://'), `location should start with https://, got ${loc}`)
+      assertHeader(res, 'location', 'https://127.0.0.1/redir/https/page')
     })
   })
 })

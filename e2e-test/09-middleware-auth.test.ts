@@ -19,11 +19,11 @@ function hashPassword(password: string) {
   const digest = 'sha512'
 
   const derivedKey = crypto.pbkdf2Sync(
-    password, 
-    salt, 
-    iterations, 
-    keyLength, 
-    digest
+    password,
+    salt,
+    iterations,
+    keyLength,
+    digest,
   )
 
   // password-auth uses PHC-like hashes; use standard base64 fields to keep format compatible.
@@ -38,7 +38,7 @@ const WRONG_CREDENTIALS = Buffer.from('alice:wrongpassword').toString('base64')
 
 before(async () => {
   await upstream.start()
-    ; ({ server, port: proxyPort } = await startProxy())
+  ;({ server, port: proxyPort } = await startProxy())
 })
 
 after(async () => {
@@ -68,9 +68,8 @@ describe('middleware: basic_auth', () => {
     it('returns WWW-Authenticate header on 401', async () => {
       const res = await proxyFetch(proxyPort, '/auth/protected/resource')
       await res.text()
-      const wwwAuth = res.headers.get('www-authenticate') ?? ''
-      assert.ok(wwwAuth.startsWith('Basic'), `expected Basic scheme, got: ${wwwAuth}`)
-      assert.ok(wwwAuth.includes('Test Realm'), `expected realm, got: ${wwwAuth}`)
+      const wwwAuth = res.headers.get('www-authenticate')
+      assert.strictEqual(wwwAuth, 'Basic realm="Test Realm", charset="UTF-8"')
     })
     it('returns 401 for wrong password', async () => {
       const res = await proxyFetch(proxyPort, '/auth/protected/resource', {

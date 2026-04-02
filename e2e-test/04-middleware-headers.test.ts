@@ -61,8 +61,7 @@ describe('middleware: request_headers', () => {
 
     it('appended value appears in upstream headers', async () => {
       const { body } = await getJson(proxyPort, '/rqh/append/test', { headers: { 'x-multi': 'first' } })
-      const val: string = body.headers['x-multi'] ?? ''
-      assert.ok(val.includes('appended'), `expected 'appended' in '${val}'`)
+      assert.match(String(body.headers['x-multi'] ?? ''), /^first,\s*appended$/)
     })
   })
 
@@ -102,10 +101,7 @@ describe('middleware: request_headers', () => {
 
     it('upstream does not receive the removed header', async () => {
       const { body } = await getJson(proxyPort, '/rqh/remove/test', { headers: { 'x-secret': 'should-be-gone' } })
-      assert.ok(
-        body.headers['x-secret'] === undefined || body.headers['x-secret'] === null,
-        `expected x-secret to be absent, got ${body.headers['x-secret']}`,
-      )
+      assert.strictEqual(body.headers['x-secret'], undefined)
     })
   })
 
@@ -127,7 +123,7 @@ describe('middleware: request_headers', () => {
     })
     it('does not apply header when rule does not match', async () => {
       const { body } = await getJson(proxyPort, '/rqh/rule/test')
-      assert.ok(!body.headers['x-conditional'], `expected x-conditional absent, got ${body.headers['x-conditional']}`)
+      assert.strictEqual(body.headers['x-conditional'], undefined)
     })
   })
 })
@@ -192,7 +188,10 @@ describe('middleware: response_headers', () => {
     })
 
     it('sets default header when upstream does not send it', async () => {
-      upstream.setHandler((_req, res) => { res.statusCode = 200; res.end('ok') })
+      upstream.setHandler((_req, res) => {
+        res.statusCode = 200
+        res.end('ok')
+      })
       const res = await proxyFetch(proxyPort, '/rsh/default/test')
       await res.text()
       assertHeader(res, 'x-rdefault', 'fallback')
@@ -231,8 +230,7 @@ describe('middleware: response_headers', () => {
       })
       const res = await proxyFetch(proxyPort, '/rsh/append/test')
       await res.text()
-      const val = res.headers.get('x-tags') ?? ''
-      assert.ok(val.includes('proxy'), `expected 'proxy' in '${val}'`)
+      assert.match(res.headers.get('x-tags') ?? '', /^origin,\s*proxy$/)
       upstream.resetHandler()
     })
   })

@@ -49,9 +49,11 @@ describe('middleware: compression', () => {
       await new Promise<void>((resolve, reject) => {
         const gz = createGunzip()
         let out = ''
-        gz.on('data', (c) => { out += c })
+        gz.on('data', (c) => {
+          out += c
+        })
         gz.on('end', () => {
-          assert.ok(out.includes('hello'), `decompressed body should contain 'hello', got: ${out}`)
+          assert.strictEqual(out, 'hello gzip compression world')
           resolve()
         })
         gz.on('error', reject)
@@ -77,9 +79,9 @@ describe('middleware: compression', () => {
 
     it('response is not gzip-encoded when level is 0', async () => {
       const res = await proxyFetch(proxyPort, '/comp/nogzip/test', { headers: { 'accept-encoding': 'gzip' } })
-      const encoding = res.headers.get('content-encoding') || ''
+      const encoding = res.headers.get('content-encoding')
       await res.text()
-      assert.ok(encoding === '', `expected no gzip encoding, got: ${encoding}`)
+      assert.strictEqual(encoding, null)
     })
   })
 
@@ -105,7 +107,7 @@ describe('middleware: compression', () => {
       const encoding = String(response.headers['content-encoding'] ?? '')
       assert.strictEqual(response.statusCode, 200)
       assert.strictEqual(encoding, 'br')
-      assert.ok(body.length > 0, 'raw br body should not be empty')
+      assert.strictEqual(body.length > 0, true, 'raw br body should not be empty')
 
       // Node fetch auto-decompresses; verify end-user-visible payload is correct.
       // zlib.brotliDecompressSync is not correctly working
@@ -115,7 +117,7 @@ describe('middleware: compression', () => {
       const decodedEncoding = decoded.headers.get('content-encoding') ?? ''
       const text = await decoded.text()
       assert.strictEqual(decodedEncoding, 'br')
-      assert.ok(text.includes('hello brotli compression world'), `decoded body mismatch: ${text}`)
+      assert.strictEqual(text, 'hello brotli compression world')
     })
   })
 
@@ -138,10 +140,10 @@ describe('middleware: compression', () => {
 
     it('proxy decompresses upstream gzip and client receives plain text', async () => {
       const { response, body } = await requestRawHttp(proxyPort, '/comp/decompup/test')
-      const encoding = String(response.headers['content-encoding'] ?? '')
+      const encoding = response.headers['content-encoding']
       const text = body.toString('utf8')
-      assert.ok(encoding !== 'gzip', `response to plain client should not be gzip, got: ${encoding}`)
-      assert.ok(text.includes('upstream sent gzip'), `body should be decompressed, got: ${text}`)
+      assert.strictEqual(encoding, undefined)
+      assert.strictEqual(text, 'upstream sent gzip')
     })
   })
 })
