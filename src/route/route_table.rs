@@ -1,4 +1,6 @@
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
+
+use arc_swap::ArcSwap;
 
 use crate::proxy::ctx::ProxyCtx;
 use crate::route::Route;
@@ -51,30 +53,30 @@ impl RouteTable {
 
 #[derive(Clone, Default)]
 pub struct SharedRouteTable {
-  snapshot: Arc<RwLock<Arc<RouteTable>>>,
+  snapshot: Arc<ArcSwap<RouteTable>>,
 }
 
 impl SharedRouteTable {
   pub fn new() -> Self {
     Self {
-      snapshot: Arc::new(RwLock::new(Arc::new(RouteTable::default()))),
+      snapshot: Arc::new(ArcSwap::from_pointee(RouteTable::default())),
     }
   }
 
   pub fn read_snapshot(&self) -> Arc<RouteTable> {
-    self.snapshot.read().expect("route table poisoned").clone()
+    self.snapshot.load_full()
   }
 
   pub fn upsert_route(&self, route: Route) {
     let current = self.read_snapshot();
     let next = current.upsert_route(route);
-    *self.snapshot.write().expect("route table poisoned") = next;
+    self.snapshot.store(next);
   }
 
   pub fn remove_route(&self, route_id: &str) -> bool {
     let current = self.read_snapshot();
     let (next, removed) = current.remove_route(route_id);
-    *self.snapshot.write().expect("route table poisoned") = next;
+    self.snapshot.store(next);
     removed
   }
 

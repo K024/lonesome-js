@@ -166,5 +166,82 @@ describe('matcher', () => {
       cleanHigh()
       cleanLow()
     })
+
+    it('default priority beats explicit low priority for the same rule', async () => {
+      const defaultId = nextRouteId('prio-default-over-low')
+      const explicitLowId = nextRouteId('prio-explicit-low')
+      const rule = "PathPrefix('/m/prio/default-vs-explicit-low')"
+
+      const cleanDefault = withRoute(server, {
+        id: defaultId,
+        matcher: { rule },
+        middlewares: [{ type: 'respond', config: { status: 419 } }],
+        upstreams: tcpUpstream(upstream.port),
+      })
+      const cleanExplicitLow = withRoute(server, {
+        id: explicitLowId,
+        matcher: { rule, priority: 1 },
+        middlewares: [{ type: 'respond', config: { status: 420 } }],
+        upstreams: tcpUpstream(upstream.port),
+      })
+
+      const res = await proxyFetch(proxyPort, '/m/prio/default-vs-explicit-low/test')
+      await res.text()
+      assert.strictEqual(res.status, 419)
+
+      cleanExplicitLow()
+      cleanDefault()
+    })
+
+    it('explicit high priority beats default priority for the same rule', async () => {
+      const defaultId = nextRouteId('prio-default-under-high')
+      const explicitHighId = nextRouteId('prio-explicit-high')
+      const rule = "PathPrefix('/m/prio/default-vs-explicit-high')"
+
+      const cleanDefault = withRoute(server, {
+        id: defaultId,
+        matcher: { rule },
+        middlewares: [{ type: 'respond', config: { status: 421 } }],
+        upstreams: tcpUpstream(upstream.port),
+      })
+      const cleanExplicitHigh = withRoute(server, {
+        id: explicitHighId,
+        matcher: { rule, priority: 1000 },
+        middlewares: [{ type: 'respond', config: { status: 422 } }],
+        upstreams: tcpUpstream(upstream.port),
+      })
+
+      const res = await proxyFetch(proxyPort, '/m/prio/default-vs-explicit-high/test')
+      await res.text()
+      assert.strictEqual(res.status, 422)
+
+      cleanExplicitHigh()
+      cleanDefault()
+    })
+
+    it('higher default priority (longer rule) wins over lower default priority', async () => {
+      const lowDefaultId = nextRouteId('prio-default-low')
+      const highDefaultId = nextRouteId('prio-default-high')
+
+      const cleanLowDefault = withRoute(server, {
+        id: lowDefaultId,
+        matcher: { rule: "PathPrefix('/m/prio/default-vs-default')" },
+        middlewares: [{ type: 'respond', config: { status: 423 } }],
+        upstreams: tcpUpstream(upstream.port),
+      })
+      const cleanHighDefault = withRoute(server, {
+        id: highDefaultId,
+        matcher: { rule: "PathPrefix('/m/prio/default-vs-default/longer')" },
+        middlewares: [{ type: 'respond', config: { status: 424 } }],
+        upstreams: tcpUpstream(upstream.port),
+      })
+
+      const res = await proxyFetch(proxyPort, '/m/prio/default-vs-default/longer/test')
+      await res.text()
+      assert.strictEqual(res.status, 424)
+
+      cleanHighDefault()
+      cleanLowDefault()
+    })
   })
 })

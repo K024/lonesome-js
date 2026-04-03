@@ -26,6 +26,9 @@
     "artifacts": "napi artifacts",
     "build": "napi build --output-dir dist --platform --release",
     "build:debug": "napi build --output-dir dist --platform",
+    "bench:list-suites": "tsx bench/index.ts list-suites",
+    "bench:setup": "tsx bench/setup.ts start",
+    "bench": "tsx bench/index.ts run",
     "version": "napi version",
     "test": "tsx --test 'e2e-test/**/*.test.ts'"
   },
@@ -35,6 +38,7 @@
     "@types/node": "^25.5.0",
     "jose": "^6.2.2",
     "tsx": "^4.21.0",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "zx": "^8.8.5"
   }
 }
