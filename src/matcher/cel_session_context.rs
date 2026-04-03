@@ -2,10 +2,12 @@ use std::sync::{Arc, RwLock};
 
 use cel::objects::{Opaque, OpaqueEq};
 use cel::{Context, Value};
+use josekit::jwt::JwtPayload;
 use percent_encoding;
 use pingora::http::{RequestHeader, ResponseHeader};
 use pingora::protocols::l4::socket::SocketAddr;
 use pingora::proxy::Session;
+use serde_json::Value as JsonValue;
 
 use crate::proxy::ctx::ProxyCtx;
 use crate::server::tls_callbacks::DownstreamTlsInfo;
@@ -18,6 +20,7 @@ const CEL_HTTP_SESSION_KEY: &str = "_cel_http_session";
 pub struct CelHttpSession {
   req_header: RequestHeader,
   upstream_res_header: RwLock<Option<ResponseHeader>>,
+  jwt_payload: RwLock<Option<JwtPayload>>,
   client_addr: Option<SocketAddr>,
   tls_sni: Option<String>,
 }
@@ -50,6 +53,7 @@ impl CelHttpSession {
       // TODO: borrow req_header when cel-rust supports it
       req_header: session.req_header().clone(),
       upstream_res_header: RwLock::new(None),
+      jwt_payload: RwLock::new(None),
       client_addr: session.as_downstream().client_addr().cloned(),
       tls_sni,
     }
@@ -63,6 +67,28 @@ impl CelHttpSession {
 
   pub fn req_header(&self) -> &RequestHeader {
     &self.req_header
+  }
+
+  pub fn set_jwt_payload(&self, payload: Option<JwtPayload>) {
+    if let Ok(mut lock) = self.jwt_payload.write() {
+      *lock = payload;
+    }
+  }
+
+  pub fn jwt_payload_string(&self) -> Option<String> {
+    self
+      .jwt_payload
+      .read()
+      .ok()
+      .and_then(|lock| lock.as_ref().map(|p| p.to_string()))
+  }
+
+  pub fn jwt_claim_value(&self, key: &str) -> Option<JsonValue> {
+    self
+      .jwt_payload
+      .read()
+      .ok()
+      .and_then(|lock| lock.as_ref().and_then(|p| p.claim(key).cloned()))
   }
 
   pub fn client_addr(&self) -> Option<&SocketAddr> {

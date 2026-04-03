@@ -3,6 +3,7 @@ pub mod cache;
 pub mod compression;
 pub mod cors;
 pub mod health_check;
+pub mod jwt;
 pub mod middleware;
 pub mod rate_limit;
 pub mod redirect;

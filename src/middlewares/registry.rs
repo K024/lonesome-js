@@ -6,6 +6,7 @@ use crate::middlewares::cache::{CacheConfig, CacheMiddleware};
 use crate::middlewares::compression::{CompressionConfig, CompressionMiddleware};
 use crate::middlewares::cors::{CorsConfig, CorsMiddleware};
 use crate::middlewares::health_check::{HealthCheckConfig, HealthCheckMiddleware};
+use crate::middlewares::jwt::{JwtConfig, JwtMiddleware};
 use crate::middlewares::rate_limit::{RateLimitConfig, RateLimitMiddleware};
 use crate::middlewares::redirect::{RedirectConfig, RedirectMiddleware};
 use crate::middlewares::redirect_https::{RedirectHttpsConfig, RedirectHttpsMiddleware};
@@ -23,6 +24,7 @@ pub enum MiddlewareType {
   RewriteMethod(RewriteMethodConfig),
   SetVariable(SetVariableConfig),
   BasicAuth(BasicAuthConfig),
+  Jwt(JwtConfig),
   RequestHeaders(RequestHeadersConfig),
   ResponseHeaders(ResponseHeadersConfig),
   Compression(CompressionConfig),
@@ -43,6 +45,7 @@ pub fn build_middleware(cfg: &MiddlewareConfig) -> Result<Box<dyn Middleware>, S
     }
     MiddlewareType::SetVariable(v) => Ok(Box::new(SetVariableMiddleware::from_config(v.clone())?)),
     MiddlewareType::BasicAuth(v) => Ok(Box::new(BasicAuthMiddleware::from_config(v.clone())?)),
+    MiddlewareType::Jwt(v) => Ok(Box::new(JwtMiddleware::from_config(v.clone())?)),
     MiddlewareType::RequestHeaders(v) => {
       Ok(Box::new(RequestHeadersMiddleware::from_config(v.clone())?))
     }

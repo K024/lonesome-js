@@ -10,6 +10,7 @@ impl MiddlewareConfig {
     match &self.r#type {
       MiddlewareType::RewriteMethod(cfg) => cfg.validate(),
       MiddlewareType::BasicAuth(cfg) => cfg.validate(),
+      MiddlewareType::Jwt(cfg) => cfg.validate(),
       MiddlewareType::SetVariable(cfg) => cfg.validate(),
       MiddlewareType::RequestHeaders(cfg) => cfg.validate(),
       MiddlewareType::ResponseHeaders(cfg) => cfg.validate(),

@@ -5,6 +5,7 @@ use std::sync::{Arc, OnceLock};
 use cel::{Context, FunctionContext, Value};
 use form_urlencoded;
 use ipnet::IpNet;
+use serde_json::Value as JsonValue;
 
 use super::cel_regex;
 use super::cel_session_context::{cel_http_session_key, CelHttpSession};
@@ -171,6 +172,37 @@ fn response_header_value(ftx: &FunctionContext, key: Arc<String>) -> String {
   with_session(ftx, |s| s.response_header_value(key.as_str())).unwrap_or_default()
 }
 
+fn jwt_claim(ftx: &FunctionContext, key: Arc<String>, expected: Arc<String>) -> bool {
+  with_session(ftx, |s| {
+    let Some(claim) = s.jwt_claim_value(key.as_str()) else {
+      return false;
+    };
+
+    match claim {
+      JsonValue::String(v) => v == expected.as_str(),
+      JsonValue::Number(v) => v.to_string() == expected.as_str(),
+      _ => false,
+    }
+  })
+  .unwrap_or(false)
+}
+
+fn jwt_claim_value(ftx: &FunctionContext, key: Arc<String>) -> Result<Value, cel::ExecutionError> {
+  let claim = with_session(ftx, |s| s.jwt_claim_value(key.as_str())).flatten();
+  cel::to_value(claim.unwrap_or(JsonValue::Null)).map_err(|e| {
+    cel::ExecutionError::function_error(
+      "JwtClaimValue",
+      format!("failed to convert claim to cel value: {e}"),
+    )
+  })
+}
+
+fn jwt_payload_value(ftx: &FunctionContext) -> String {
+  with_session(ftx, |s| s.jwt_payload_string())
+    .flatten()
+    .unwrap_or_default()
+}
+
 fn client_ip_matches(actual: &str, expected: &str) -> bool {
   let Ok(actual_ip) = actual.parse::<IpAddr>() else {
     return false;
@@ -214,6 +246,11 @@ pub fn parent_context() -> &'static Context<'static> {
     // Response functions
     ctx.add_function("ResponseStatusValue", response_status_value);
     ctx.add_function("ResponseHeaderValue", response_header_value);
+
+    // Auth functions
+    ctx.add_function("JwtClaim", jwt_claim);
+    ctx.add_function("JwtClaimValue", jwt_claim_value);
+    ctx.add_function("JwtPayloadValue", jwt_payload_value);
 
     ctx
   })
