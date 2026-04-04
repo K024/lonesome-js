@@ -1,6 +1,6 @@
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { DenaliServer } from '../../dist/index.js'
+import { LonesomeServer } from '../../dist/index.js'
 import type { NapiStartupConfig } from '../../dist/index.js'
 
 /**
@@ -18,13 +18,13 @@ export async function pickFreePort(): Promise<number> {
 }
 
 /**
- * Start a DenaliServer on a randomly chosen free port.
+ * Start a LonesomeServer on a randomly chosen free port.
  * Returns the server instance and the port it is listening on.
  * The caller is responsible for calling server.stop() in after().
  */
-export async function startProxy(startup?: NapiStartupConfig): Promise<{ server: DenaliServer; port: number }> {
+export async function startProxy(startup?: NapiStartupConfig): Promise<{ server: LonesomeServer; port: number }> {
   const port = await pickFreePort()
-  const server = new DenaliServer()
+  const server = new LonesomeServer()
   const defaultStartup: NapiStartupConfig = {
     listeners: [{ kind: 'tcp', addr: `127.0.0.1:${port}` }],
   }

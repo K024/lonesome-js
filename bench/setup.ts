@@ -5,7 +5,7 @@ import { availableParallelism, cpus, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { parseArgs } from 'node:util'
 
-import { DenaliServer } from '../dist/index.js'
+import { LonesomeServer } from '../dist/index.js'
 import type { NapiRouteConfig, NapiStartupConfig, NapiUpstreamConfig } from '../dist/index.js'
 import { pickFreePort, sleep } from '../e2e-test/helpers/proxy.js'
 import { nextRouteId, virtualUpstream } from '../e2e-test/helpers/routes.js'
@@ -177,7 +177,7 @@ function buildRoute(id: string, setup: BenchSetup, upstreams: NapiUpstreamConfig
   }
 }
 
-function buildNoiseRoutes(server: DenaliServer, setup: BenchSetup, upstreams: NapiUpstreamConfig[]): string[] {
+function buildNoiseRoutes(server: LonesomeServer, setup: BenchSetup, upstreams: NapiUpstreamConfig[]): string[] {
   if (setup.route !== 'many') return []
 
   const ids: string[] = []
@@ -206,7 +206,7 @@ async function setupTcp(setup: BenchSetup): Promise<{ upstreams: NapiUpstreamCon
 }
 
 async function setupUnix(setup: BenchSetup): Promise<{ upstreams: NapiUpstreamConfig[]; resources: ActiveResource[] }> {
-  const dir = await mkdtemp(join(tmpdir(), 'denali-bench-'))
+  const dir = await mkdtemp(join(tmpdir(), 'lonesome-bench-'))
   const socketPath = join(dir, 'bench.sock')
   const upstream = createUnixUpstream(socketPath, makeResponseHandler(setup.payload))
   await upstream.start()
@@ -245,7 +245,7 @@ export async function startBenchEnvironment(setup: BenchSetup, startup: BenchSta
   shutdown: () => Promise<void>
 }> {
   const port = await pickFreePort()
-  const server = new DenaliServer()
+  const server = new LonesomeServer()
   const startupConfig: NapiStartupConfig = {
     listeners: [{ kind: 'tcp', addr: `127.0.0.1:${port}` }],
     threads: startup.threads,

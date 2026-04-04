@@ -9,16 +9,16 @@ use crate::bindings::status::NapiServerStatus;
 use crate::bindings::{error::mutex_poisoned, error::to_napi_error};
 use crate::config::RouteConfig;
 use crate::route::{Route, SharedRouteTable};
-use crate::server::DenaliRuntime;
+use crate::server::LonesomeRuntime;
 
 #[napi]
-pub struct DenaliServer {
+pub struct LonesomeServer {
   routes: SharedRouteTable,
-  runtime: Mutex<Option<DenaliRuntime>>,
+  runtime: Mutex<Option<LonesomeRuntime>>,
 }
 
 #[napi]
-impl DenaliServer {
+impl LonesomeServer {
   #[napi(constructor)]
   pub fn new() -> Self {
     Self {
@@ -33,10 +33,10 @@ impl DenaliServer {
 
     let mut guard = self.runtime.lock().map_err(|_| mutex_poisoned("runtime"))?;
     if guard.is_some() {
-      return Err(to_napi_error("denali server already started"));
+      return Err(to_napi_error("lonesome server already started"));
     }
 
-    let rt = DenaliRuntime::start(startup_cfg, self.routes.clone()).map_err(to_napi_error)?;
+    let rt = LonesomeRuntime::start(startup_cfg, self.routes.clone()).map_err(to_napi_error)?;
     *guard = Some(rt);
     Ok(())
   }
@@ -68,7 +68,7 @@ impl DenaliServer {
   pub fn status(&self) -> Result<NapiServerStatus> {
     let guard = self.runtime.lock().map_err(|_| mutex_poisoned("runtime"))?;
     Ok(NapiServerStatus {
-      running: guard.as_ref().is_some_and(DenaliRuntime::is_running),
+      running: guard.as_ref().is_some_and(LonesomeRuntime::is_running),
       route_count: self.routes.route_count() as u32,
     })
   }

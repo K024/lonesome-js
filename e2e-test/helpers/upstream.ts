@@ -1,4 +1,5 @@
 import { createServer as createHttp1 } from 'node:http'
+import { createServer as createHttp2Plain } from 'node:http2'
 import type { AddressInfo } from 'node:net'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 
@@ -48,7 +49,6 @@ export type DynamicUpstream = ReturnType<typeof createDynamicUpstream>
  * Call start() to bind to a random port; actual port is available via .port.
  */
 export function createH2cUpstream() {
-  const { createServer: createHttp2Plain } = require('node:http2')
   const server = createHttp2Plain((req: any, res: any) => {
     res.setHeader('content-type', 'application/json')
     res.end(JSON.stringify({ protocol: 'h2c', method: req.method, url: req.url }))

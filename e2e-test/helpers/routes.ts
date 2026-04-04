@@ -1,4 +1,4 @@
-import type { DenaliServer, NapiRouteConfig, NapiUpstreamConfig } from '../../dist/index.js'
+import type { LonesomeServer, NapiRouteConfig, NapiUpstreamConfig } from '../../dist/index.js'
 
 let _seq = 0
 
@@ -17,11 +17,11 @@ export function virtualUpstream(key: string): NapiUpstreamConfig[] {
   return [{ kind: 'virtual_js', address: key, tls: false, sni: '', weight: 1 }]
 }
 
-export function addRoute(server: DenaliServer, config: NapiRouteConfig): void {
+export function addRoute(server: LonesomeServer, config: NapiRouteConfig): void {
   server.addOrUpdate(config)
 }
 
-export function removeRoute(server: DenaliServer, id: string): boolean {
+export function removeRoute(server: LonesomeServer, id: string): boolean {
   return server.remove(id)
 }
 
@@ -34,7 +34,7 @@ export function removeRoute(server: DenaliServer, id: string): boolean {
  * before(() => { cleanup = withRoute(server, { id, matcher, middlewares, upstreams }) })
  * after(() => cleanup())
  */
-export function withRoute(server: DenaliServer, config: NapiRouteConfig): () => void {
+export function withRoute(server: LonesomeServer, config: NapiRouteConfig): () => void {
   server.addOrUpdate(config)
   return () => server.remove(config.id)
 }

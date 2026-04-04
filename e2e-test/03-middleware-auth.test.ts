@@ -4,10 +4,10 @@ import { startProxy } from './helpers/proxy.js'
 import { createDynamicUpstream } from './helpers/upstream.js'
 import { nextRouteId, tcpUpstream, withRoute } from './helpers/routes.js'
 import { proxyFetch } from './helpers/request.js'
-import type { DenaliServer } from '../dist/index.js'
+import type { LonesomeServer } from '../dist/index.js'
 import crypto from 'node:crypto'
 
-let server: DenaliServer
+let server: LonesomeServer
 let proxyPort: number
 const upstream = createDynamicUpstream()
 const cleanups: Array<() => void> = []

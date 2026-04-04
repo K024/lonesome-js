@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "target": "esnext",
+    "tsBuildInfoFile": "node_modules/.tsbuildinfo.json",
+    "skipLibCheck": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "strict": true,
+    "noImplicitAny": true
+  },
+  "include": [
+    "bench/**/*.ts",
+    "e2e-test/**/*.ts"
+  ]
+}

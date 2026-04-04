@@ -4,11 +4,11 @@ import { startProxy } from './helpers/proxy.js'
 import { startVirtualUpstream } from './helpers/virtual.js'
 import { nextRouteId, virtualUpstream, withRoute } from './helpers/routes.js'
 import { proxyFetch } from './helpers/request.js'
-import type { DenaliServer } from '../dist/index.js'
+import type { LonesomeServer } from '../dist/index.js'
 
 const VIRTUAL_JS_KEY = 'test-vjs'
 
-let server: DenaliServer
+let server: LonesomeServer
 let proxyPort: number
 const cleanups: Array<() => void> = []
 let vjsStop: () => void

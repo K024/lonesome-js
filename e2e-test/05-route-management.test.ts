@@ -4,9 +4,9 @@ import { startProxy } from './helpers/proxy.js'
 import { createDynamicUpstream } from './helpers/upstream.js'
 import { nextRouteId, tcpUpstream, addRoute, removeRoute } from './helpers/routes.js'
 import { assertStatus, proxyFetch } from './helpers/request.js'
-import type { DenaliServer } from '../dist/index.js'
+import type { LonesomeServer } from '../dist/index.js'
 
-let server: DenaliServer
+let server: LonesomeServer
 let proxyPort: number
 const upstream1 = createDynamicUpstream()
 const upstream2 = createDynamicUpstream()

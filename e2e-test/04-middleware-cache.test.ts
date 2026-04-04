@@ -5,9 +5,9 @@ import { createDynamicUpstream } from './helpers/upstream.js'
 import { nextRouteId, tcpUpstream, withRoute } from './helpers/routes.js'
 import { proxyFetch, assertHeader, assertNoHeader } from './helpers/request.js'
 import { purgeRouteCache } from '../dist/index.js'
-import type { DenaliServer } from '../dist/index.js'
+import type { LonesomeServer } from '../dist/index.js'
 
-let server: DenaliServer
+let server: LonesomeServer
 let proxyPort: number
 const upstream = createDynamicUpstream()
 const cleanups: Array<() => void> = []

@@ -10,23 +10,23 @@ use pingora::server::configuration::ServerConf;
 use pingora::server::{RunArgs, Server, ShutdownSignal, ShutdownSignalWatch};
 
 use crate::config::{StartupConfig, StartupListenerConfig};
-use crate::proxy::DenaliProxy;
+use crate::proxy::LonesomeProxy;
 use crate::route::SharedRouteTable;
 use crate::server::tls_callbacks::DownstreamTlsCallbacks;
 
-pub struct DenaliRuntime {
+pub struct LonesomeRuntime {
   shutdown_tx: Option<mpsc::Sender<ShutdownSignal>>,
   handle: Option<JoinHandle<()>>,
 }
 
-impl DenaliRuntime {
+impl LonesomeRuntime {
   pub fn start(startup: StartupConfig, routes: SharedRouteTable) -> Result<Self, String> {
     startup.validate()?;
 
     let (shutdown_tx, shutdown_rx) = mpsc::channel::<ShutdownSignal>();
 
     let handle = thread::Builder::new()
-      .name("denali-pingora".to_string())
+      .name("lonesome-pingora".to_string())
       .spawn(move || {
         let mut conf = ServerConf::new().expect("default pingora conf");
         if let Some(threads) = startup.threads {
@@ -41,7 +41,7 @@ impl DenaliRuntime {
         let mut server = Server::new_with_opt_and_conf(None, conf);
         server.bootstrap();
 
-        let mut service = http_proxy_service(&server.configuration, DenaliProxy::new(routes));
+        let mut service = http_proxy_service(&server.configuration, LonesomeProxy::new(routes));
 
         for listener in startup.listeners {
           match listener {
@@ -106,7 +106,7 @@ impl DenaliRuntime {
   }
 }
 
-impl Drop for DenaliRuntime {
+impl Drop for LonesomeRuntime {
   fn drop(&mut self) {
     let _ = self.stop();
   }

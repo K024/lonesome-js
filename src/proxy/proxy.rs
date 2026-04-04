@@ -17,11 +17,11 @@ use crate::proxy::ctx::ProxyCtx;
 use crate::route::{Route, SharedRouteTable};
 
 #[derive(Clone)]
-pub struct DenaliProxy {
+pub struct LonesomeProxy {
   routes: SharedRouteTable,
 }
 
-impl DenaliProxy {
+impl LonesomeProxy {
   pub fn new(routes: SharedRouteTable) -> Self {
     Self { routes }
   }
@@ -45,7 +45,7 @@ impl DenaliProxy {
 }
 
 #[async_trait]
-impl ProxyHttp for DenaliProxy {
+impl ProxyHttp for LonesomeProxy {
   type CTX = ProxyCtx;
 
   fn new_ctx(&self) -> Self::CTX {

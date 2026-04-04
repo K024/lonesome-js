@@ -7,7 +7,7 @@ export type PayloadData = {
 
 function buildMediumJson(): string {
   const body = {
-    message: 'denali benchmark payload',
+    message: 'lonesome benchmark payload',
     tags: ['bench', 'payload', 'medium'],
     requestHints: {
       cacheable: false,

@@ -1,7 +1,7 @@
 {
-  "name": "denali-js",
-  "version": "1.0.0",
-  "type": "commonjs",
+  "name": "lonesome-js",
+  "version": "0.1.0",
+  "type": "module",
   "main": "dist/index.js",
   "exports": {
     ".": {
@@ -10,7 +10,7 @@
     }
   },
   "napi": {
-    "binaryName": "denali-js",
+    "binaryName": "lonesome-js",
     "targets": [
       "x86_64-pc-windows-msvc",
       "x86_64-apple-darwin",
@@ -24,12 +24,13 @@
   },
   "scripts": {
     "artifacts": "napi artifacts",
-    "build": "napi build --output-dir dist --platform --release",
-    "build:debug": "napi build --output-dir dist --platform",
+    "build": "napi build --esm --output-dir dist --platform --release",
+    "build:debug": "napi build --esm --output-dir dist --platform",
     "bench:list-suites": "tsx bench/index.ts list-suites",
     "bench:setup": "tsx bench/setup.ts start",
     "bench": "tsx bench/index.ts run",
     "version": "napi version",
+    "lint": "tsc -b --noEmit",
     "test": "tsx --test 'e2e-test/**/*.test.ts'"
   },
   "devDependencies": {

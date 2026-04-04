@@ -1,8 +1,8 @@
 import { describe, it, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import https from 'node:https'
-import { DenaliServer } from '../dist/index.js'
-import type { DenaliServer as DenaliServerType } from '../dist/index.js'
+import { LonesomeServer } from '../dist/index.js'
+import type { LonesomeServer as LonesomeServerType } from '../dist/index.js'
 import { createDynamicUpstream } from './helpers/upstream.js'
 import { nextRouteId, tcpUpstream, withRoute } from './helpers/routes.js'
 import { requestRawHttps } from './helpers/request.js'
@@ -10,7 +10,7 @@ import { pickFreePort, sleep } from './helpers/proxy.js'
 import { generateSelfSignedTlsCert } from './helpers/tls.js'
 import { request as httpRequest } from 'node:http'
 
-let server: DenaliServerType
+let server: LonesomeServerType
 let httpPort: number
 let tlsPort: number
 let tlsCleanup: (() => void) | undefined
@@ -25,7 +25,7 @@ before(async () => {
   const cert = generateSelfSignedTlsCert('127.0.0.1')
   tlsCleanup = cert.cleanup
 
-  server = new DenaliServer()
+  server = new LonesomeServer()
   server.start({
     listeners: [
       {

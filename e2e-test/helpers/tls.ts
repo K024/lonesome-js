@@ -15,7 +15,7 @@ export type GeneratedTlsCert = {
  * Requires openssl to be installed on the host.
  */
 export function generateSelfSignedTlsCert(commonName = '127.0.0.1'): GeneratedTlsCert {
-  const dir = mkdtempSync(join(tmpdir(), 'denali-e2e-tls-'))
+  const dir = mkdtempSync(join(tmpdir(), 'lonesome-e2e-tls-'))
   const certPath = join(dir, 'cert.pem')
   const keyPath = join(dir, 'key.pem')
 

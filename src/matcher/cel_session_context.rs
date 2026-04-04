@@ -27,7 +27,7 @@ pub struct CelHttpSession {
 
 impl Opaque for CelHttpSession {
   fn runtime_type_name(&self) -> &str {
-    "denali.CelHttpSession"
+    "CelHttpSession"
   }
 }
 
