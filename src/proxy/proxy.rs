@@ -401,9 +401,7 @@ impl ProxyHttp for LonesomeProxy {
     ctx: &mut Self::CTX,
     req: &RequestHeader,
   ) -> Option<HashBinary> {
-    let Some(cache) = Self::current_cache_handler(ctx) else {
-      return None;
-    };
+    let cache = Self::current_cache_handler(ctx)?;
 
     cache.cache_vary_filter(meta, req, ctx)
   }

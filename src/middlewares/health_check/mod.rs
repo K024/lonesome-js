@@ -60,7 +60,7 @@ impl HealthCheckMiddleware {
       if let Some(backend) = &upstream_state.last_backend {
         let now = chrono::Utc::now().timestamp_millis();
         observe_backend_health(
-          &backend,
+          backend,
           true,
           now,
           self.failure_window_ms,
@@ -75,7 +75,7 @@ impl HealthCheckMiddleware {
       if let Some(backend) = &upstream_state.last_backend {
         let now = chrono::Utc::now().timestamp_millis();
         observe_backend_health(
-          &backend,
+          backend,
           false,
           now,
           self.failure_window_ms,
