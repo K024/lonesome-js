@@ -1,28 +1,28 @@
 use napi_derive::napi;
 
-use crate::bindings::middleware_config::NapiMiddlewareConfig;
-use crate::bindings::upstream_config::{NapiLoadBalancerConfig, NapiUpstreamConfig};
-use crate::config::{RouteConfig, RouteMatcherConfig};
+use crate::bindings::middleware_config::MiddlewareConfig;
+use crate::bindings::upstream_config::{LoadBalancerConfig, UpstreamConfig};
+use crate::config::{RouteConfig as CoreRouteConfig, RouteMatcherConfig as CoreRouteMatcherConfig};
 
-#[napi(object)]
-pub struct NapiRouteMatcherConfig {
+#[napi(object, js_name = "RouteMatcherConfig")]
+pub struct RouteMatcherConfig {
   pub rule: String,
   pub priority: Option<i32>,
 }
 
 #[napi(object)]
-pub struct NapiRouteConfig {
+pub struct RouteConfig {
   pub id: String,
-  pub matcher: NapiRouteMatcherConfig,
-  pub middlewares: Vec<NapiMiddlewareConfig>,
-  pub upstreams: Vec<NapiUpstreamConfig>,
-  pub load_balancer: Option<NapiLoadBalancerConfig>,
+  pub matcher: RouteMatcherConfig,
+  pub middlewares: Vec<MiddlewareConfig>,
+  pub upstreams: Vec<UpstreamConfig>,
+  pub load_balancer: Option<LoadBalancerConfig>,
 }
 
-impl TryFrom<NapiRouteConfig> for RouteConfig {
+impl TryFrom<RouteConfig> for CoreRouteConfig {
   type Error = String;
 
-  fn try_from(value: NapiRouteConfig) -> Result<Self, Self::Error> {
+  fn try_from(value: RouteConfig) -> Result<Self, Self::Error> {
     let middlewares = value
       .middlewares
       .into_iter()
@@ -37,9 +37,9 @@ impl TryFrom<NapiRouteConfig> for RouteConfig {
 
     let load_balancer = value.load_balancer.map(TryInto::try_into).transpose()?;
 
-    Ok(RouteConfig {
+    Ok(CoreRouteConfig {
       id: value.id,
-      matcher: RouteMatcherConfig {
+      matcher: CoreRouteMatcherConfig {
         rule: value.matcher.rule,
         priority: value.matcher.priority,
       },

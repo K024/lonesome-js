@@ -1,4 +1,4 @@
-import type { LonesomeServer, NapiRouteConfig, NapiUpstreamConfig } from '../../dist/index.js'
+import type { LonesomeServer, RouteConfig, UpstreamConfig } from '../../dist/index.js'
 
 let _seq = 0
 
@@ -8,16 +8,16 @@ export function nextRouteId(prefix = 'test'): string {
 }
 
 /** TCP upstream config pointing at a given port */
-export function tcpUpstream(port: number): NapiUpstreamConfig[] {
+export function tcpUpstream(port: number): UpstreamConfig[] {
   return [{ kind: 'tcp', address: `127.0.0.1:${port}`, tls: false, sni: '', weight: 1 }]
 }
 
 /** Virtual-JS upstream config */
-export function virtualUpstream(key: string): NapiUpstreamConfig[] {
+export function virtualUpstream(key: string): UpstreamConfig[] {
   return [{ kind: 'virtual_js', address: key, tls: false, sni: '', weight: 1 }]
 }
 
-export function addRoute(server: LonesomeServer, config: NapiRouteConfig): void {
+export function addRoute(server: LonesomeServer, config: RouteConfig): void {
   server.addOrUpdate(config)
 }
 
@@ -34,7 +34,7 @@ export function removeRoute(server: LonesomeServer, id: string): boolean {
  * before(() => { cleanup = withRoute(server, { id, matcher, middlewares, upstreams }) })
  * after(() => cleanup())
  */
-export function withRoute(server: LonesomeServer, config: NapiRouteConfig): () => void {
+export function withRoute(server: LonesomeServer, config: RouteConfig): () => void {
   server.addOrUpdate(config)
   return () => server.remove(config.id)
 }

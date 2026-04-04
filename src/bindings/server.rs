@@ -3,11 +3,11 @@ use std::sync::Mutex;
 use napi::bindgen_prelude::Result;
 use napi_derive::napi;
 
-use crate::bindings::route_config::NapiRouteConfig;
-use crate::bindings::startup_config::NapiStartupConfig;
-use crate::bindings::status::NapiServerStatus;
+use crate::bindings::route_config::RouteConfig;
+use crate::bindings::startup_config::StartupConfig;
+use crate::bindings::status::ServerStatus;
 use crate::bindings::{error::mutex_poisoned, error::to_napi_error};
-use crate::config::RouteConfig;
+use crate::config::RouteConfig as CoreRouteConfig;
 use crate::route::{Route, SharedRouteTable};
 use crate::server::LonesomeRuntime;
 
@@ -28,7 +28,7 @@ impl LonesomeServer {
   }
 
   #[napi]
-  pub fn start(&self, startup: NapiStartupConfig) -> Result<()> {
+  pub fn start(&self, startup: StartupConfig) -> Result<()> {
     let startup_cfg = startup.try_into().map_err(to_napi_error)?;
 
     let mut guard = self.runtime.lock().map_err(|_| mutex_poisoned("runtime"))?;
@@ -52,8 +52,8 @@ impl LonesomeServer {
   }
 
   #[napi]
-  pub fn add_or_update(&self, route: NapiRouteConfig) -> Result<()> {
-    let cfg: RouteConfig = route.try_into().map_err(to_napi_error)?;
+  pub fn add_or_update(&self, route: RouteConfig) -> Result<()> {
+    let cfg: CoreRouteConfig = route.try_into().map_err(to_napi_error)?;
     let route = Route::from_config(cfg).map_err(to_napi_error)?;
     self.routes.upsert_route(route);
     Ok(())
@@ -65,9 +65,9 @@ impl LonesomeServer {
   }
 
   #[napi]
-  pub fn status(&self) -> Result<NapiServerStatus> {
+  pub fn status(&self) -> Result<ServerStatus> {
     let guard = self.runtime.lock().map_err(|_| mutex_poisoned("runtime"))?;
-    Ok(NapiServerStatus {
+    Ok(ServerStatus {
       running: guard.as_ref().is_some_and(LonesomeRuntime::is_running),
       route_count: self.routes.route_count() as u32,
     })

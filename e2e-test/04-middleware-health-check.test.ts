@@ -4,7 +4,7 @@ import { startProxy } from './helpers/proxy.js'
 import { createDynamicUpstream } from './helpers/upstream.js'
 import { nextRouteId, tcpUpstream, withRoute } from './helpers/routes.js'
 import { proxyFetch } from './helpers/request.js'
-import type { LonesomeServer } from '../dist/index.js'
+import type { LonesomeServer, UpstreamConfig } from '../dist/index.js'
 
 let server: LonesomeServer
 let proxyPort: number
@@ -25,7 +25,7 @@ after(async () => {
   await upstream2.stop()
 })
 
-function bothUpstreams() {
+function bothUpstreams(): UpstreamConfig[] {
   return [
     { kind: 'tcp', address: `127.0.0.1:${upstream1.port}`, tls: false, sni: '', weight: 1 },
     { kind: 'tcp', address: `127.0.0.1:${upstream2.port}`, tls: false, sni: '', weight: 1 },

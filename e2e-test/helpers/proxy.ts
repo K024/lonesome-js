@@ -1,7 +1,7 @@
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { LonesomeServer } from '../../dist/index.js'
-import type { NapiStartupConfig } from '../../dist/index.js'
+import type { StartupConfig } from '../../dist/index.js'
 
 /**
  * Find a free TCP port by binding a probe server to port 0,
@@ -22,10 +22,10 @@ export async function pickFreePort(): Promise<number> {
  * Returns the server instance and the port it is listening on.
  * The caller is responsible for calling server.stop() in after().
  */
-export async function startProxy(startup?: NapiStartupConfig): Promise<{ server: LonesomeServer; port: number }> {
+export async function startProxy(startup?: StartupConfig): Promise<{ server: LonesomeServer; port: number }> {
   const port = await pickFreePort()
   const server = new LonesomeServer()
-  const defaultStartup: NapiStartupConfig = {
+  const defaultStartup: StartupConfig = {
     listeners: [{ kind: 'tcp', addr: `127.0.0.1:${port}` }],
   }
 

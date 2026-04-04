@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { parseArgs } from 'node:util'
 
 import { LonesomeServer } from '../dist/index.js'
-import type { NapiRouteConfig, NapiStartupConfig, NapiUpstreamConfig } from '../dist/index.js'
+import type { RouteConfig, StartupConfig, UpstreamConfig } from '../dist/index.js'
 import { pickFreePort, sleep } from '../e2e-test/helpers/proxy.js'
 import { nextRouteId, virtualUpstream } from '../e2e-test/helpers/routes.js'
 import { createDynamicUpstream } from '../e2e-test/helpers/upstream.js'
@@ -163,7 +163,7 @@ function makeResponseHandler(payloadPreset: PayloadPreset) {
   }
 }
 
-function buildRoute(id: string, setup: BenchSetup, upstreams: NapiUpstreamConfig[]): NapiRouteConfig {
+function buildRoute(id: string, setup: BenchSetup, upstreams: UpstreamConfig[]): RouteConfig {
   const payload = getPayload(setup.payload)
   const middlewares = setup.upstream === 'respond'
     ? [{ type: 'respond', config: { status: 200, body: payload.body, content_type: payload.contentType } }]
@@ -177,7 +177,7 @@ function buildRoute(id: string, setup: BenchSetup, upstreams: NapiUpstreamConfig
   }
 }
 
-function buildNoiseRoutes(server: LonesomeServer, setup: BenchSetup, upstreams: NapiUpstreamConfig[]): string[] {
+function buildNoiseRoutes(server: LonesomeServer, setup: BenchSetup, upstreams: UpstreamConfig[]): string[] {
   if (setup.route !== 'many') return []
 
   const ids: string[] = []
@@ -194,7 +194,7 @@ function buildNoiseRoutes(server: LonesomeServer, setup: BenchSetup, upstreams: 
   return ids
 }
 
-async function setupTcp(setup: BenchSetup): Promise<{ upstreams: NapiUpstreamConfig[]; resources: ActiveResource[] }> {
+async function setupTcp(setup: BenchSetup): Promise<{ upstreams: UpstreamConfig[]; resources: ActiveResource[] }> {
   const upstream = createDynamicUpstream()
   upstream.setHandler(makeResponseHandler(setup.payload))
   await upstream.start()
@@ -205,7 +205,7 @@ async function setupTcp(setup: BenchSetup): Promise<{ upstreams: NapiUpstreamCon
   }
 }
 
-async function setupUnix(setup: BenchSetup): Promise<{ upstreams: NapiUpstreamConfig[]; resources: ActiveResource[] }> {
+async function setupUnix(setup: BenchSetup): Promise<{ upstreams: UpstreamConfig[]; resources: ActiveResource[] }> {
   const dir = await mkdtemp(join(tmpdir(), 'lonesome-bench-'))
   const socketPath = join(dir, 'bench.sock')
   const upstream = createUnixUpstream(socketPath, makeResponseHandler(setup.payload))
@@ -217,7 +217,7 @@ async function setupUnix(setup: BenchSetup): Promise<{ upstreams: NapiUpstreamCo
   }
 }
 
-async function setupVirtualJs(setup: BenchSetup): Promise<{ upstreams: NapiUpstreamConfig[]; resources: ActiveResource[] }> {
+async function setupVirtualJs(setup: BenchSetup): Promise<{ upstreams: UpstreamConfig[]; resources: ActiveResource[] }> {
   const key = `bench-vjs-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
   const vjs = startVirtualUpstream(key, makeResponseHandler(setup.payload))
 
@@ -227,7 +227,7 @@ async function setupVirtualJs(setup: BenchSetup): Promise<{ upstreams: NapiUpstr
   }
 }
 
-async function setupRespond(): Promise<{ upstreams: NapiUpstreamConfig[]; resources: ActiveResource[] }> {
+async function setupRespond(): Promise<{ upstreams: UpstreamConfig[]; resources: ActiveResource[] }> {
   const sink = createHttpServer((_req, res) => res.end('unreachable'))
   await new Promise<void>((resolve) => sink.listen(0, '127.0.0.1', resolve))
   const port = (sink.address() as { port: number }).port
@@ -246,7 +246,7 @@ export async function startBenchEnvironment(setup: BenchSetup, startup: BenchSta
 }> {
   const port = await pickFreePort()
   const server = new LonesomeServer()
-  const startupConfig: NapiStartupConfig = {
+  const startupConfig: StartupConfig = {
     listeners: [{ kind: 'tcp', addr: `127.0.0.1:${port}` }],
     threads: startup.threads,
     workStealing: startup.workSteal,
@@ -286,7 +286,7 @@ export async function startBenchEnvironment(setup: BenchSetup, startup: BenchSta
   }
 
   try {
-    let upstreamSetup: { upstreams: NapiUpstreamConfig[]; resources: ActiveResource[] }
+    let upstreamSetup: { upstreams: UpstreamConfig[]; resources: ActiveResource[] }
     let upstreamEndpoint = ''
     if (setup.upstream === 'tcp') {
       upstreamSetup = await setupTcp(setup)
