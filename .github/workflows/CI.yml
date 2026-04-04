@@ -33,18 +33,18 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: 24
-          cache: npm
+          # cache: npm
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
 
-      - name: Cache Rust build
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: release-${{ matrix.target }}
-          cache-on-failure: true
+      # - name: Cache Rust build
+      #   uses: Swatinem/rust-cache@v2
+      #   with:
+      #     shared-key: release-${{ matrix.target }}
+      #     cache-on-failure: true
 
       - name: Install dependencies
         run: npm ci
@@ -72,7 +72,7 @@ jobs:
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
-          cache: npm
+          # cache: npm
 
       - name: Install dependencies
         run: npm ci
