@@ -111,6 +111,23 @@ impl DynLoadBalancer for ConsistentDynLb {
   }
 }
 
+// use TEST-NET-1: 192.0.2.0/24 (RFC 5737 reserved documentation/testing range).
+fn virtual_js_placeholder_addr(idx: usize, key: &str) -> Result<SocketAddr, String> {
+  const MAX_BACKENDS: usize = 254; // Support only 254 backends (idx 1-254)
+  const PORT: u16 = 1;
+
+  if idx >= MAX_BACKENDS {
+    return Err(format!(
+      "too many virtual upstreams: index {idx} exceeds maximum capacity {MAX_BACKENDS}"
+    ));
+  }
+
+  let host = idx as u8 + 1;
+  let placeholder = format!("192.0.2.{}:{}", host, PORT);
+  SocketAddr::from_str(&placeholder)
+    .map_err(|e| format!("invalid virtual upstream placeholder for '{key}': {e}"))
+}
+
 pub fn build_load_balancer(
   upstreams: &[UpstreamEndpoint],
   cfg: &LoadBalancerConfig,
@@ -152,8 +169,7 @@ pub fn build_load_balancer(
         ext.insert(PassiveHealthState::default());
 
         Backend {
-          addr: SocketAddr::from_str("127.0.0.1:1")
-            .map_err(|e| format!("invalid virtual upstream placeholder for '{key}': {e}"))?,
+          addr: virtual_js_placeholder_addr(idx, key)?,
           weight: *weight as usize,
           ext,
         }
