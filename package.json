@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "type": "module",
   "main": "dist/index.js",
+  "license": "MIT",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -34,9 +35,9 @@
     "test": "tsx --test 'e2e-test/**/*.test.ts'"
   },
   "devDependencies": {
-    "@napi-rs/cli": "^3.5.1",
+    "@napi-rs/cli": "^3.6.0",
     "@types/k6": "^1.7.0",
-    "@types/node": "^25.5.0",
+    "@types/node": "^25.5.2",
     "jose": "^6.2.2",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
