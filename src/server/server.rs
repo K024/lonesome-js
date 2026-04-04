@@ -73,6 +73,7 @@ impl LonesomeRuntime {
         server.add_service(service);
 
         let run_args = RunArgs {
+          #[cfg(unix)]
           shutdown_signal: Box::new(ChannelShutdownSignalWatch::new(shutdown_rx)),
         };
 
@@ -86,6 +87,7 @@ impl LonesomeRuntime {
     })
   }
 
+  #[cfg(unix)]
   pub fn stop(&mut self) -> Result<(), String> {
     if let Some(tx) = self.shutdown_tx.take() {
       tx.send(ShutdownSignal::GracefulTerminate)
@@ -99,6 +101,14 @@ impl LonesomeRuntime {
     }
 
     Ok(())
+  }
+
+  #[cfg(windows)]
+  pub fn stop(&mut self) -> Result<(), String> {
+    Err(
+        "stop is not supported on Windows with current pingora API; pingora only listens for Ctrl+C on Windows"
+          .to_string(),
+      )
   }
 
   pub fn is_running(&self) -> bool {

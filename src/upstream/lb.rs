@@ -1,9 +1,11 @@
 use std::collections::BTreeSet;
+use std::hash::{BuildHasher, Hasher};
 use std::str::FromStr;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
 
 use futures::executor::block_on;
+use hashbrown::DefaultHashBuilder;
 use pingora::lb::discovery;
 use pingora::lb::selection::{Consistent, RoundRobin};
 use pingora::lb::{Backend, Backends, Extensions, LoadBalancer};
@@ -112,9 +114,8 @@ impl DynLoadBalancer for ConsistentDynLb {
 }
 
 // use TEST-NET-1: 192.0.2.0/24 (RFC 5737 reserved documentation/testing range).
-fn virtual_js_placeholder_addr(idx: usize, key: &str) -> Result<SocketAddr, String> {
+pub fn virtual_js_placeholder_addr(idx: usize, key: &str) -> Result<SocketAddr, String> {
   const MAX_BACKENDS: usize = 254; // Support only 254 backends (idx 1-254)
-  const PORT: u16 = 1;
 
   if idx >= MAX_BACKENDS {
     return Err(format!(
@@ -122,8 +123,16 @@ fn virtual_js_placeholder_addr(idx: usize, key: &str) -> Result<SocketAddr, Stri
     ));
   }
 
+  // Use the index to determine the host.
   let host = idx as u8 + 1;
-  let placeholder = format!("192.0.2.{}:{}", host, PORT);
+
+  let mut hasher = DefaultHashBuilder::default().build_hasher();
+  hasher.write(key.as_bytes());
+
+  // Use the hash of the key to determine the port.
+  let port = hasher.finish() % 32767 + 1;
+
+  let placeholder = format!("192.0.2.{}:{}", host, port);
   SocketAddr::from_str(&placeholder)
     .map_err(|e| format!("invalid virtual upstream placeholder for '{key}': {e}"))
 }

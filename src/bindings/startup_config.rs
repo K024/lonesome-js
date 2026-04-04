@@ -29,9 +29,7 @@ impl TryFrom<StartupConfig> for CoreStartupConfig {
       .listeners
       .into_iter()
       .map(|item| match item.kind.as_str() {
-        "tcp" => {
-          Ok(CoreStartupListenerConfig::Tcp { addr: item.addr })
-        }
+        "tcp" => Ok(CoreStartupListenerConfig::Tcp { addr: item.addr }),
         "tls" => {
           let cert_path = item
             .cert_path
@@ -47,9 +45,7 @@ impl TryFrom<StartupConfig> for CoreStartupConfig {
           })
         }
         #[cfg(unix)]
-        "unix" => {
-          Ok(CoreStartupListenerConfig::Unix { path: item.addr })
-        }
+        "unix" => Ok(CoreStartupListenerConfig::Unix { path: item.addr }),
         other => Err(format!("unsupported startup listener kind '{other}'")),
       })
       .collect::<Result<Vec<_>, _>>()?;

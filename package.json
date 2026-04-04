@@ -4,6 +4,14 @@
   "type": "module",
   "main": "dist/index.js",
   "license": "MIT",
+  "repository": {
+    "url": "https://github.com/K024/lonesome-js"
+  },
+  "keywords": [
+    "serverless",
+    "reverse-proxy",
+    "pingora"
+  ],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
