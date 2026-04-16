@@ -6,12 +6,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
 
-use napi::bindgen_prelude::Buffer;
 use pingora::protocols::l4::virt::{VirtualSockOpt, VirtualSocket};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 struct ReadState {
-  pending: VecDeque<(Buffer, usize)>,
+  pending: VecDeque<(Vec<u8>, usize)>,
   eof: bool,
   err: Option<String>,
   waker: Option<Waker>,
@@ -46,7 +45,7 @@ impl VirtualJsSocketState {
     })
   }
 
-  pub fn push_data(&self, _conn_id: &str, data: Buffer) -> Result<(), String> {
+  pub fn push_data(&self, _conn_id: &str, data: Vec<u8>) -> Result<(), String> {
     if self.closed.load(Ordering::Relaxed) {
       return Err("socket already closed".to_string());
     }
@@ -153,7 +152,7 @@ impl AsyncRead for VirtualJsSocket {
         break;
       };
 
-      let chunk_ref = chunk.as_ref();
+      let chunk_ref = chunk.as_slice();
       let remain = chunk_ref.len().saturating_sub(offset);
       if remain == 0 {
         continue;

@@ -48,6 +48,10 @@ impl VirtualJsSink for Listener {
     );
 
     if status != napi::Status::Ok {
+      if tsfn_closed(status) {
+        let _ = registry().unregister_listener(&self.key);
+        detach_socket(conn_id);
+      }
       return Err(format!(
         "virtual listener '{}' on_write failed for conn '{}': {status:?}",
         self.key, conn_id
@@ -68,6 +72,11 @@ impl VirtualJsSink for Listener {
     );
 
     if status != napi::Status::Ok {
+      if tsfn_closed(status) {
+        let _ = registry().unregister_listener(&self.key);
+        detach_socket(conn_id);
+        return Ok(());
+      }
       return Err(format!(
         "virtual listener '{}' on_close failed for conn '{}': {status:?}",
         self.key, conn_id
@@ -177,6 +186,7 @@ impl Registry {
       .map_err(|_| "virtual sockets rwlock poisoned".to_string())?;
     Ok(sockets.get(conn_id).cloned())
   }
+
 }
 
 fn registry() -> &'static Registry {
@@ -186,6 +196,10 @@ fn registry() -> &'static Registry {
 
 fn detach_socket(conn_id: &str) {
   let _ = registry().detach_socket_state(conn_id);
+}
+
+fn tsfn_closed(status: napi::Status) -> bool {
+  status == napi::Status::Closing || status == napi::Status::Cancelled
 }
 
 #[derive(Clone)]
@@ -223,16 +237,16 @@ impl L4Connect for VirtualJsConnector {
       (listener, conn_id, state)
     };
 
-    if listener
-      .on_event
-      .call_async(ListenerEventCall {
+    if let Err(err) = listener.on_event.call_async(ListenerEventCall {
         kind: "open".to_string(),
         conn_id: conn_id.clone(),
         data: Vec::<u8>::new().into(),
       })
       .await
-      .is_err()
     {
+      if tsfn_closed(err.status) {
+        let _ = registry().unregister_listener(&self.key);
+      }
       detach_socket(&conn_id);
       return Err(pingora::Error::new(ErrorType::ConnectError));
     }
@@ -302,7 +316,7 @@ pub fn push_event(
         .socket_state(&conn_id)
         .map_err(|_| "virtual sockets rwlock poisoned".to_string())?
         .ok_or_else(|| format!("socket '{conn_id}' not found"))?;
-      state.push_data(&conn_id, payload)
+      state.push_data(&conn_id, payload.to_vec())
     }
     "eof" => {
       let state = registry()

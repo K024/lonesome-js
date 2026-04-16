@@ -97,7 +97,7 @@ describe('upstream selection and protocols', () => {
     })
 
     it('different hash keys can route to different upstreams', async () => {
-      const keys = ['alice', 'bob', 'carol', 'dave', 'eric', 'frank']
+      const keys = ['alice', 'bob', 'carol', 'dave', 'eric', 'frank', 'grace', 'hank']
       const seen = new Set<string>()
       for (const key of keys) {
         const res = await proxyFetch(proxyPort, '/lb/hash/item', { headers: { 'x-user': key } })
