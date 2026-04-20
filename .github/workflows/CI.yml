@@ -111,6 +111,14 @@ jobs:
       - name: Place binaries into npm target packages
         run: npm run artifacts -- --output-dir artifacts --npm-dir npm
 
+      - name: Restore JS entry artifacts for main package
+        shell: bash
+        run: |
+          mkdir -p dist
+          shopt -s nullglob
+          cp artifacts/*.js dist/
+          cp artifacts/*.d.ts dist/
+
       - name: Use pushed tag as package version
         shell: bash
         run: |

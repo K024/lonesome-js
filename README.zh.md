@@ -36,6 +36,8 @@
 npm i lonesome-js
 ```
 
+> Windows 预编译绑定暂不可用，建议临时使用 WSL。
+
 ### 2. 启动代理服务
 
 ```ts

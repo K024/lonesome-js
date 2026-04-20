@@ -36,6 +36,8 @@ Beyond TCP/Unix socket upstreams, `virtual_js` allows requests to be bridged int
 npm i lonesome-js
 ```
 
+> Windows prebuilt binding is temporarily unavailable; use WSL as a temporary workaround.
+
 ### 2. Start a proxy server
 
 ```ts
