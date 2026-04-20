@@ -20,10 +20,25 @@ jobs:
         include:
           - runner: macos-latest
             target: aarch64-apple-darwin
-          # - runner: windows-latest
-          #   target: x86_64-pc-windows-msvc
+            build: npm run build -- --target aarch64-apple-darwin
+          - runner: macos-latest
+            target: x86_64-apple-darwin
+            build: npm run build -- --target x86_64-apple-darwin
+          - runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            build: npm run build -- --target x86_64-pc-windows-msvc
           - runner: ubuntu-latest
             target: x86_64-unknown-linux-gnu
+            build: npm run build -- --target x86_64-unknown-linux-gnu
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            build: npm run build -- --target x86_64-unknown-linux-musl --cross-compile
+          - runner: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            build: npm run build -- --target aarch64-unknown-linux-gnu --use-napi-cross
+          - runner: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            build: npm run build -- --target aarch64-unknown-linux-musl --cross-compile
     runs-on: ${{ matrix.runner }}
 
     steps:
@@ -33,6 +48,7 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: 24
+          # # temporarily disable caching because tag pushes are identified as different refs
           # cache: npm
 
       - name: Setup Rust
@@ -46,11 +62,21 @@ jobs:
       #     shared-key: release-${{ matrix.target }}
       #     cache-on-failure: true
 
+      - name: Setup Perl for OpenSSL on Windows
+        if: matrix.target == 'x86_64-pc-windows-msvc'
+        uses: shogo82148/actions-setup-perl@v1
+        with:
+          perl-version: "5"
+
+      - name: Setup Zig for musl
+        uses: mlugg/setup-zig@v2
+        if: ${{ contains(matrix.target, 'musl') }}
+
       - name: Install dependencies
         run: npm ci
 
       - name: Build binary
-        run: npm run build -- --target ${{ matrix.target }}
+        run: ${{ matrix.build }}
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v7
@@ -63,6 +89,7 @@ jobs:
     name: Publish
     runs-on: ubuntu-latest
     needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
 
     steps:
       - uses: actions/checkout@v6
@@ -77,12 +104,18 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Create per-target npm package dirs
+        run: npx napi create-npm-dirs
+
       - name: Download all binary artifacts
         uses: actions/download-artifact@v8
         with:
           pattern: bindings-*
-          path: dist
+          path: artifacts
           merge-multiple: true
+
+      - name: Place binaries into npm target packages
+        run: npm run artifacts -- --output-dir artifacts --npm-dir npm
 
       - name: Use pushed tag as package version
         shell: bash
@@ -94,8 +127,21 @@ jobs:
           fi
           npm pkg set version="$VERSION"
 
-      - name: Publish package
+      - name: Set npm dist-tag for prerelease
         shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          if [[ "$VERSION" == *-* ]]; then
+            npm config set tag next
+          fi
+
+      - name: Publish target binding packages and sync optionalDependencies
+        shell: bash
+        run: npx napi pre-publish --no-gh-release -t npm
+
+      - name: Publish main package
+        shell: bash
+        # no token required by trusted publish
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           if [[ "$VERSION" == *-* ]]; then
