@@ -261,11 +261,13 @@ impl L4Connect for VirtualJsConnector {
 pub fn virtual_open_connection(
   key: &str,
   dummy_addr: &SocketAddr,
+  group_key: u64,
   tls: bool,
   h2c: bool,
   sni: String,
 ) -> Result<HttpPeer, String> {
   let mut peer = HttpPeer::new(dummy_addr, tls, sni);
+  peer.group_key = group_key;
   let mut options = PeerOptions::new();
   if !tls && h2c {
     options.set_http_version(2, 2);

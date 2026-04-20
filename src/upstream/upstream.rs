@@ -7,7 +7,7 @@ use crate::config::{
   LoadBalancerAlgorithm, LoadBalancerConfig, UpstreamAddressConfig, UpstreamConfig,
 };
 use crate::proxy::ctx::ProxyCtx;
-use crate::upstream::lb::virtual_js_placeholder_addr;
+use crate::upstream::lb::{virtual_js_group_key, virtual_js_placeholder_addr};
 use crate::virtual_js::virtual_open_connection;
 
 use super::lb::{build_load_balancer, is_backend_healthy, DynLoadBalancer, EndpointIndex};
@@ -230,7 +230,11 @@ impl UpstreamPool {
     self.peer_from_endpoint(endpoint, endpoint_idx.0)
   }
 
-  fn peer_from_endpoint(&self, endpoint: &UpstreamEndpoint, idx: usize) -> Result<Box<HttpPeer>> {
+  fn peer_from_endpoint(
+    &self,
+    endpoint: &UpstreamEndpoint,
+    idx: usize,
+  ) -> Result<Box<HttpPeer>> {
     match endpoint {
       UpstreamEndpoint::Tcp {
         address,
@@ -268,15 +272,16 @@ impl UpstreamPool {
       UpstreamEndpoint::VirtualJs {
         key, tls, h2c, sni, ..
       } => {
-        let dummy_addr = virtual_js_placeholder_addr(idx, key.as_ref()).map_err(|e| {
+        let dummy_addr = virtual_js_placeholder_addr(idx).map_err(|e| {
           Error::because(
             ErrorType::InternalError,
             "dummy addr for virtual_js creation failed",
             std::io::Error::other(e),
           )
         })?;
-        let peer =
-          virtual_open_connection(key, &dummy_addr, *tls, *h2c, sni.clone()).map_err(|e| {
+        let group_key = virtual_js_group_key(key.as_ref());
+        let peer = virtual_open_connection(key, &dummy_addr, group_key, *tls, *h2c, sni.clone())
+          .map_err(|e| {
             Error::because(
               ErrorType::InternalError,
               "upstream selection failed",

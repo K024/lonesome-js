@@ -113,9 +113,10 @@ impl DynLoadBalancer for ConsistentDynLb {
   }
 }
 
-// use TEST-NET-1: 192.0.2.0/24 (RFC 5737 reserved documentation/testing range).
-pub fn virtual_js_placeholder_addr(idx: usize, key: &str) -> Result<SocketAddr, String> {
-  const MAX_BACKENDS: usize = 254; // Support only 254 backends (idx 1-254)
+// Synthetic placeholder used by virtual_js. We keep it index-based so each
+// backend remains distinct inside LB backend sets.
+pub fn virtual_js_placeholder_addr(idx: usize) -> Result<SocketAddr, String> {
+  const MAX_BACKENDS: usize = 254; // Support only 254 backends (host 1-254)
 
   if idx >= MAX_BACKENDS {
     return Err(format!(
@@ -123,18 +124,18 @@ pub fn virtual_js_placeholder_addr(idx: usize, key: &str) -> Result<SocketAddr, 
     ));
   }
 
-  // Use the index to determine the host.
+  // Use TEST-NET-1: 192.0.2.0/24 (RFC 5737 reserved documentation/testing range).
+  // Use the endpoint index to determine the host.
   let host = idx as u8 + 1;
-
-  let mut hasher = DefaultHashBuilder::default().build_hasher();
-  hasher.write(key.as_bytes());
-
-  // Use the hash of the key to determine the port.
-  let port = hasher.finish() % 32767 + 1;
-
-  let placeholder = format!("192.0.2.{}:{}", host, port);
+  let placeholder = format!("192.0.2.{}:1", host);
   SocketAddr::from_str(&placeholder)
-    .map_err(|e| format!("invalid virtual upstream placeholder for '{key}': {e}"))
+    .map_err(|e| format!("invalid virtual_js placeholder addr for idx {idx}: {e}"))
+}
+
+pub fn virtual_js_group_key(path: &str) -> u64 {
+  let mut hasher = DefaultHashBuilder::default().build_hasher();
+  hasher.write(path.as_bytes());
+  hasher.finish()
 }
 
 pub fn build_load_balancer(
@@ -172,13 +173,13 @@ pub fn build_load_balancer(
           ext,
         }
       }
-      UpstreamEndpoint::VirtualJs { key, weight, .. } => {
+      UpstreamEndpoint::VirtualJs { weight, .. } => {
         let mut ext = Extensions::new();
         ext.insert(EndpointIndex(idx));
         ext.insert(PassiveHealthState::default());
 
         Backend {
-          addr: virtual_js_placeholder_addr(idx, key)?,
+          addr: virtual_js_placeholder_addr(idx)?,
           weight: *weight as usize,
           ext,
         }
