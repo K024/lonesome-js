@@ -230,11 +230,7 @@ impl UpstreamPool {
     self.peer_from_endpoint(endpoint, endpoint_idx.0)
   }
 
-  fn peer_from_endpoint(
-    &self,
-    endpoint: &UpstreamEndpoint,
-    idx: usize,
-  ) -> Result<Box<HttpPeer>> {
+  fn peer_from_endpoint(&self, endpoint: &UpstreamEndpoint, idx: usize) -> Result<Box<HttpPeer>> {
     match endpoint {
       UpstreamEndpoint::Tcp {
         address,

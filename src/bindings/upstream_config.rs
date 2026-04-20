@@ -7,6 +7,7 @@ use crate::config::{
 
 #[napi(object, js_name = "LoadBalancerConfig")]
 pub struct LoadBalancerConfig {
+  #[napi(ts_type = "'round_robin' | 'rr' | 'consistent_hash' | 'consistent' | 'ch'")]
   pub algorithm: Option<String>,
   pub max_iterations: Option<u32>,
   pub hash_key_rule: Option<String>,
