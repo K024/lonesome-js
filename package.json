@@ -1,6 +1,6 @@
 {
   "name": "lonesome-js",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "main": "dist/index.js",
   "license": "MIT",
@@ -20,13 +20,19 @@
   },
   "napi": {
     "binaryName": "lonesome-js",
+    "packageName": "@lonesome-js/binding",
     "targets": [
       "aarch64-apple-darwin",
+      "aarch64-unknown-linux-gnu",
+      "aarch64-unknown-linux-musl",
+      "x86_64-apple-darwin",
       "x86_64-pc-windows-msvc",
-      "x86_64-unknown-linux-gnu"
+      "x86_64-unknown-linux-gnu",
+      "x86_64-unknown-linux-musl"
     ]
   },
   "files": [
+    "docs/",
     "dist/"
   ],
   "engines": {

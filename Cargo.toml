@@ -7,7 +7,7 @@ version = "0.1.0"
 crate-type = ["cdylib"]
 
 [dependencies]
-arc-swap = "1.9.0"
+arc-swap = "1.9.1"
 async-trait = "0.1.89"
 base64 = "0.22.1"
 bytes = "1.11.1"
@@ -15,12 +15,12 @@ cel = "0.13.0"
 chrono = "0.4.44"
 form_urlencoded = "1.2.2"
 futures = "0.3.32"
-hashbrown = "0.16.1"
+hashbrown = "0.17.0"
 http = "1.4.0"
 ipnet = "2.12.0"
 josekit = "0.10.3"
-napi = { version = "3.8.4", features = ["async", "anyhow", "serde-json"] }
-napi-derive = "3.5.3"
+napi = { version = "3.8.5", features = ["async", "anyhow", "serde-json"] }
+napi-derive = "3.5.4"
 password-auth = { version = "1.0.0", features = ["default", "scrypt", "pbkdf2"] }
 percent-encoding = "2.3.2"
 pingora = { version = "0.8.0", features = ["openssl", "proxy", "lb", "cache", "time"] }
@@ -30,7 +30,7 @@ pingora-runtime = "0.8.0"
 regex = "1.12.3"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
-tokio = { version = "1.50.0", features = ["full"] }
+tokio = { version = "1.52.1", features = ["full"] }
 
 [build-dependencies]
 napi-build = "2"

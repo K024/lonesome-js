@@ -142,6 +142,37 @@ describe('matcher', () => {
   })
 
   describe('priority', () => {
+    it('higher-priority matcher with runtime CEL error should not block lower-priority healthy route', async () => {
+      const badHighId = nextRouteId('prio-bad-high')
+      const healthyLowId = nextRouteId('prio-healthy-low')
+      const path = '/m/prio/runtime-bad/test'
+
+      const cleanupBadHigh = withRoute(server, {
+        id: badHighId,
+        matcher: {
+          // valid CEL syntax, but unknown function causes runtime execute error.
+          rule: "PathPrefix('/m/prio/runtime-bad') && NonExistFunction('x')",
+          priority: 1000,
+        },
+        middlewares: [{ type: 'respond', config: { status: 451 } }],
+        upstreams: tcpUpstream(upstream.port),
+      })
+
+      const cleanupHealthyLow = withRoute(server, {
+        id: healthyLowId,
+        matcher: { rule: "PathPrefix('/m/prio/runtime-bad')", priority: 10 },
+        middlewares: [{ type: 'respond', config: { status: 200 } }],
+        upstreams: tcpUpstream(upstream.port),
+      })
+
+      const res = await proxyFetch(proxyPort, path)
+      await res.text()
+      assert.strictEqual(res.status, 200)
+
+      cleanupHealthyLow()
+      cleanupBadHigh()
+    })
+
     it('high-priority route wins over overlapping lower-priority route', async () => {
       const lowId = nextRouteId('prio-low')
       const highId = nextRouteId('prio-high')
