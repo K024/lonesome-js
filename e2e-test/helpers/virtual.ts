@@ -79,9 +79,11 @@ function defaultVirtualHandler(req: IncomingMessage, res: ServerResponse): void 
 export function startVirtualUpstream(key: string, handler?: VirtualHandler) {
   const httpServer = createServer(handler ?? defaultVirtualHandler)
   const connMap = new Map<string, VirtualSocketDuplex>()
+  const openedConnIds: string[] = []
 
   registerVirtualListener(key, (kind, connId, data) => {
     if (kind === 'open') {
+      openedConnIds.push(connId)
       const duplex = new VirtualSocketDuplex(connId)
       connMap.set(connId, duplex)
       duplex.on('close', () => connMap.delete(connId))
@@ -105,6 +107,12 @@ export function startVirtualUpstream(key: string, handler?: VirtualHandler) {
 
   return {
     connMap,
+    getOpenCount(): number {
+      return openedConnIds.length
+    },
+    getOpenedConnIds(): string[] {
+      return [...openedConnIds]
+    },
     stop(): void {
       unregisterVirtualListener(key)
       httpServer.close()

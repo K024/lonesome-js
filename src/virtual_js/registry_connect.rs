@@ -105,6 +105,9 @@ pub fn virtual_open_connection(
   if !tls && h2c {
     options.set_http_version(2, 2);
   }
+  // pingora currently rejects all reuses of virtual streams (matches_fd(-1) is always false)
+  // explicitly disable connection pooling for virtual connections
+  options.idle_timeout = Some(std::time::Duration::from_secs(0));
   options.custom_l4 = Some(Arc::new(VirtualJsConnector::new(key.to_string())));
   peer.options = options;
   Ok(peer)
