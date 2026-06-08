@@ -12,7 +12,7 @@ use pingora::ErrorType;
 use crate::virtual_js::socket::{VirtualJsSink, VirtualJsSocket};
 
 use super::registry_store::{detach_socket, registry, tsfn_closed};
-use super::registry_types::{InterceptorCall, ListenerEventCall};
+use super::registry_types::ListenerEventCall;
 
 #[derive(Clone)]
 pub struct VirtualJsConnector {
@@ -37,31 +37,6 @@ impl VirtualJsConnector {
 impl L4Connect for VirtualJsConnector {
   async fn connect(&self, _addr: &SocketAddr) -> pingora::Result<Stream> {
     let ctx = registry().init_connect(&self.key)?;
-
-    if let Some(interceptor) = ctx.interceptor {
-      let intercept_promise = match interceptor
-        .on_intercept
-        .call_async(InterceptorCall {
-          conn_id: ctx.conn_id.clone(),
-        })
-        .await
-      {
-        Ok(promise) => promise,
-        Err(err) => {
-          if tsfn_closed(err.status) {
-            let _ = registry().unregister_interceptor(&interceptor.path);
-          }
-          detach_socket(&ctx.conn_id);
-          return Err(pingora::Error::new(ErrorType::ConnectError));
-        }
-      };
-
-      if intercept_promise.await.is_err() {
-        detach_socket(&ctx.conn_id);
-        return Err(pingora::Error::new(ErrorType::ConnectError));
-      }
-    }
-
     let listener = registry().listener(&self.key)?;
 
     if let Err(err) = listener

@@ -1,8 +1,8 @@
-use napi::bindgen_prelude::{Buffer, Function, Promise};
+use napi::bindgen_prelude::{Buffer, Function};
 use napi::threadsafe_function::ThreadsafeCallContext;
 
 use super::registry_store::{detach_socket, registry};
-use super::registry_types::{InterceptorCall, ListenerEventCall};
+use super::registry_types::ListenerEventCall;
 
 pub fn register_virtual_listener(
   key: String,
@@ -30,32 +30,6 @@ pub fn unregister_virtual_listener(key: String) -> Result<bool, String> {
   }
 
   registry().unregister_listener(&key)
-}
-
-pub fn register_virtual_interceptor(
-  path: String,
-  interceptor: Function<'_, (String,), Promise<()>>,
-) -> Result<(), String> {
-  if path.trim().is_empty() {
-    return Err("virtual interceptor path cannot be empty".to_string());
-  }
-
-  let on_intercept = interceptor
-    .build_threadsafe_function::<InterceptorCall>()
-    .max_queue_size::<8192>()
-    .callee_handled::<false>()
-    .build_callback(|ctx: ThreadsafeCallContext<InterceptorCall>| Ok((ctx.value.conn_id,).into()))
-    .map_err(|e| format!("failed to build interceptor tsfn: {e}"))?;
-
-  registry().register_interceptor(path, on_intercept)
-}
-
-pub fn unregister_virtual_interceptor(path: String) -> Result<bool, String> {
-  if path.trim().is_empty() {
-    return Err("virtual interceptor path cannot be empty".to_string());
-  }
-
-  registry().unregister_interceptor(&path)
 }
 
 pub fn push_event(

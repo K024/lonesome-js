@@ -1,10 +1,11 @@
 import { after, before, describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { once } from 'node:events'
+import { proxyFetch } from '../helpers/request.js'
 import type { LonesomeServer } from '../../dist/index.js'
 import {
-  registerVirtualInterceptor,
-  unregisterVirtualInterceptor,
+  registerInterceptor,
+  unregisterInterceptor,
   unregisterVirtualListener,
 } from '../../dist/index.js'
 import { startProxy } from '../helpers/proxy.js'
@@ -16,7 +17,7 @@ import {
   waitForWorkerEvent,
 } from './helpers.js'
 
-describe('worker_threads + virtual_js interceptor', () => {
+describe('worker_threads + interceptor middleware', () => {
   let server: LonesomeServer
   let proxyPort: number
 
@@ -35,7 +36,7 @@ describe('worker_threads + virtual_js interceptor', () => {
     const cleanupRoute = withRoute(server, {
       id: nextRouteId('wt-vjs-interceptor-gate'),
       matcher: { rule: "PathPrefix('/wt/vjs/interceptor-gate')", priority: 80 },
-      middlewares: [],
+      middlewares: [{ type: 'interceptor', config: { key } }],
       upstreams: virtualUpstream(key),
       loadBalancer: { algorithm: 'round_robin', maxIterations: 16 },
     })
@@ -43,7 +44,7 @@ describe('worker_threads + virtual_js interceptor', () => {
     let interceptCount = 0
     let workerStarted = false
     const workerRef: { current: ReturnType<typeof spawnVirtualWorker> | null } = { current: null }
-    registerVirtualInterceptor(key, async () => {
+    registerInterceptor(key, async () => {
       interceptCount += 1
       if (workerStarted) {
         throw new Error('interceptor should not be triggered after unregister')
@@ -59,6 +60,8 @@ describe('worker_threads + virtual_js interceptor', () => {
         workerRef.current = null
         throw err
       }
+
+      return { action: 'continue' }
     })
 
     try {
@@ -67,7 +70,7 @@ describe('worker_threads + virtual_js interceptor', () => {
       assert.strictEqual(first.body.marker, 'worker-interceptor')
       assert.strictEqual(interceptCount, 1)
 
-      const removed = unregisterVirtualInterceptor(key)
+      const removed = unregisterInterceptor(key)
       assert.strictEqual(removed, true)
 
       const statuses = await concurrentStatus(proxyPort, path, 24)
@@ -75,7 +78,7 @@ describe('worker_threads + virtual_js interceptor', () => {
       assert.strictEqual(interceptCount, 1)
     } finally {
       cleanupRoute()
-      unregisterVirtualInterceptor(key)
+      unregisterInterceptor(key)
       unregisterVirtualListener(key)
       const worker = workerRef.current
       if (worker && worker.threadId !== -1) {
@@ -90,14 +93,14 @@ describe('worker_threads + virtual_js interceptor', () => {
     }
   })
 
-  it('rejected interceptor promise fails connect with 502 and can be recovered by unregister', async () => {
+  it('interceptor can short-circuit and can be recovered by unregister', async () => {
     const key = 'wt-vjs-interceptor-reject'
     const path = '/wt/vjs/interceptor-reject'
 
     const cleanupRoute = withRoute(server, {
       id: nextRouteId('wt-vjs-interceptor-reject'),
       matcher: { rule: "PathPrefix('/wt/vjs/interceptor-reject')", priority: 80 },
-      middlewares: [],
+      middlewares: [{ type: 'interceptor', config: { key } }],
       upstreams: virtualUpstream(key),
       loadBalancer: { algorithm: 'round_robin', maxIterations: 16 },
     })
@@ -108,14 +111,14 @@ describe('worker_threads + virtual_js interceptor', () => {
       worker.postMessage({ type: 'start' })
       await waitForWorkerEvent(worker, 'started')
 
-      registerVirtualInterceptor(key, async () => {
-        throw new Error('reject in interceptor')
+      registerInterceptor(key, async () => {
+        return { action: 'respond', status: 503, body: 'blocked by interceptor' }
       })
 
       const failed = await fetchJson(proxyPort, path)
-      assert.strictEqual(failed.status, 502)
+      assert.strictEqual(failed.status, 503)
 
-      const removed = unregisterVirtualInterceptor(key)
+      const removed = unregisterInterceptor(key)
       assert.strictEqual(removed, true)
 
       const recovered = await fetchJson(proxyPort, path)
@@ -127,10 +130,91 @@ describe('worker_threads + virtual_js interceptor', () => {
       await once(worker, 'exit')
     } finally {
       cleanupRoute()
-      unregisterVirtualInterceptor(key)
+      unregisterInterceptor(key)
       unregisterVirtualListener(key)
       if (worker.threadId !== -1) {
         await worker.terminate()
+      }
+    }
+  })
+
+
+  it('interceptor receives request fields and can respond with body/content-type', async () => {
+    const key = 'interceptor-request-fields'
+    const path = '/interceptor/request-fields?x=1'
+    const seen: Array<{ key: string; requestId: string; method: string; path: string }> = []
+
+    const cleanupRoute = withRoute(server, {
+      id: nextRouteId('interceptor-request-fields'),
+      matcher: { rule: "PathPrefix('/interceptor/request-fields')", priority: 80 },
+      middlewares: [{ type: 'interceptor', config: { key } }],
+      upstreams: virtualUpstream('missing-listener-should-not-be-used'),
+      loadBalancer: { algorithm: 'round_robin', maxIterations: 16 },
+    })
+
+    registerInterceptor(key, async (request) => {
+      seen.push(request)
+      return {
+        action: 'respond',
+        status: 418,
+        body: JSON.stringify({ ok: true, method: request.method, path: request.path }),
+        contentType: 'application/json',
+      }
+    })
+
+    try {
+      const res = await proxyFetch(proxyPort, path, {
+        method: 'POST',
+        signal: AbortSignal.timeout(3000),
+      })
+      assert.strictEqual(res.status, 418)
+      assert.strictEqual(res.headers.get('content-type'), 'application/json')
+      const body = await res.json()
+      assert.deepStrictEqual(body, { ok: true, method: 'POST', path })
+
+      assert.strictEqual(seen.length, 1)
+      assert.strictEqual(seen[0].key, key)
+      assert.match(seen[0].requestId, new RegExp(`^${key}:req:\\d+$`))
+      assert.strictEqual(seen[0].method, 'POST')
+      assert.strictEqual(seen[0].path, path)
+    } finally {
+      cleanupRoute()
+      unregisterInterceptor(key)
+    }
+  })
+
+  it('interceptor middleware continues by default when js handler is missing', async () => {
+    const key = 'interceptor-missing-handler'
+    const path = '/interceptor/missing-handler'
+    const worker = spawnVirtualWorker(key, 'missing-handler-continue')
+
+    const cleanupRoute = withRoute(server, {
+      id: nextRouteId('interceptor-missing-handler'),
+      matcher: { rule: "PathPrefix('/interceptor/missing-handler')", priority: 80 },
+      middlewares: [{ type: 'interceptor', config: { key } }],
+      upstreams: virtualUpstream(key),
+      loadBalancer: { algorithm: 'round_robin', maxIterations: 16 },
+    })
+
+    try {
+      worker.postMessage({ type: 'start' })
+      await waitForWorkerEvent(worker, 'started')
+
+      const res = await fetchJson(proxyPort, path)
+      assert.strictEqual(res.status, 200)
+      assert.strictEqual(res.body.marker, 'missing-handler-continue')
+    } finally {
+      cleanupRoute()
+      unregisterInterceptor(key)
+      unregisterVirtualListener(key)
+      if (worker.threadId !== -1) {
+        try {
+          worker.postMessage({ type: 'shutdown' })
+          await waitForWorkerEvent(worker, 'shutdown-ack')
+          await once(worker, 'exit')
+        } catch {
+          await worker.terminate()
+        }
       }
     }
   })
@@ -139,17 +223,17 @@ describe('worker_threads + virtual_js interceptor', () => {
     const key = 'wt-vjs-interceptor-duplicate'
 
     try {
-      registerVirtualInterceptor(key, async () => {})
+      registerInterceptor(key, async () => {})
 
       assert.throws(
-        () => registerVirtualInterceptor(key, async () => {}),
+        () => registerInterceptor(key, async () => {}),
         /already exists/,
       )
 
-      assert.strictEqual(unregisterVirtualInterceptor(key), true)
-      assert.strictEqual(unregisterVirtualInterceptor(key), false)
+      assert.strictEqual(unregisterInterceptor(key), true)
+      assert.strictEqual(unregisterInterceptor(key), false)
     } finally {
-      unregisterVirtualInterceptor(key)
+      unregisterInterceptor(key)
       unregisterVirtualListener(key)
     }
   })

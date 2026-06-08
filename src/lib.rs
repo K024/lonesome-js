@@ -2,6 +2,7 @@
 
 pub mod bindings;
 pub mod config;
+pub mod interceptor;
 pub mod matcher;
 pub mod middlewares;
 pub mod proxy;

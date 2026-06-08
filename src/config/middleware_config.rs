@@ -23,6 +23,7 @@ impl MiddlewareConfig {
       MiddlewareType::RedirectHttps(cfg) => cfg.validate(),
       MiddlewareType::RateLimit(cfg) => cfg.validate(),
       MiddlewareType::Cors(cfg) => cfg.validate(),
+      MiddlewareType::Interceptor(cfg) => cfg.validate(),
     }
   }
 }

@@ -1,7 +1,4 @@
-pub use super::registry_api::{
-  push_event, register_virtual_interceptor, register_virtual_listener,
-  unregister_virtual_interceptor, unregister_virtual_listener,
-};
+pub use super::registry_api::{push_event, register_virtual_listener, unregister_virtual_listener};
 pub use super::registry_connect::virtual_open_connection;
 
 use super::registry_store::{detach_socket, registry, tsfn_closed};

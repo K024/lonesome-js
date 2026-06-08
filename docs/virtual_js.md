@@ -33,8 +33,6 @@ Exports:
 ```ts
 registerVirtualListener(key: string, onEvent: (kind: string, connId: string, data: Buffer) => void): void
 unregisterVirtualListener(key: string): boolean
-registerVirtualInterceptor(path: string, interceptor: (connId: string) => Promise<void>): void
-unregisterVirtualInterceptor(path: string): boolean
 virtualPushEvent(kind: string, connId: string, data?: Buffer, message?: string): void
 ```
 
@@ -51,24 +49,17 @@ Push event kinds from JS to Rust socket:
 ## Bridge Lifecycle
 
 1. A request selects a `virtual_js` upstream endpoint.
-2. Rust resolves listener by key.
-3. Rust allocates a `connId` and socket state.
-4. If `registerVirtualInterceptor(path, interceptor)` exists for this upstream path key, Rust waits until `interceptor(connId)` resolves.
-5. Rust emits `open` to JS listener.
-6. JS creates/attaches a duplex and emits HTTP `connection` to a Node server.
-7. Data flows both ways:
+2. Rust resolves listener by key and allocates a `connId` and socket state.
+3. Rust emits `open` to JS listener.
+4. JS creates/attaches a duplex and emits HTTP `connection` to a Node server.
+5. Data flows both ways:
    - Rust write -> JS `write` event
    - JS duplex write -> `virtualPushEvent('data', connId, chunk)`
-8. Close flow:
+6. Close flow:
    - Rust shutdown -> JS `close` event
    - JS side can also send `eof` or `error`
 
-Interceptor notes:
-- `path` maps to upstream `address` (virtual listener key).
-- Only one interceptor is allowed per path; duplicate registration is rejected.
-- Rust waits for Promise completion (`await`) before proceeding to `open`.
-- If interceptor throws/rejects, connect fails for that request.
-- Interceptor runs before listener `open` event.
+Interceptor middleware has been split into [interceptor.md](./interceptor.md).
 
 ## Minimal Listener Pattern
 
@@ -165,9 +156,8 @@ Behavior:
 ## Failure Modes
 
 - Missing listener key at connect time causes upstream connect failure.
-- Interceptor rejection causes upstream connect failure.
+- Interceptor middleware is documented separately in `interceptor.md`.
 - Duplicate listener registration for the same key is rejected.
-- Duplicate interceptor registration for the same path is rejected.
 - Pushing events to unknown `connId` returns error.
 - Unsupported `virtualPushEvent` kind returns error.
 

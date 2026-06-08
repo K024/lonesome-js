@@ -6,6 +6,7 @@ use crate::middlewares::cache::{CacheConfig, CacheMiddleware};
 use crate::middlewares::compression::{CompressionConfig, CompressionMiddleware};
 use crate::middlewares::cors::{CorsConfig, CorsMiddleware};
 use crate::middlewares::health_check::{HealthCheckConfig, HealthCheckMiddleware};
+use crate::middlewares::interceptor::{InterceptorConfig, InterceptorMiddleware};
 use crate::middlewares::jwt::{JwtConfig, JwtMiddleware};
 use crate::middlewares::rate_limit::{RateLimitConfig, RateLimitMiddleware};
 use crate::middlewares::redirect::{RedirectConfig, RedirectMiddleware};
@@ -36,6 +37,7 @@ pub enum MiddlewareType {
   RedirectHttps(RedirectHttpsConfig),
   RateLimit(RateLimitConfig),
   Cors(CorsConfig),
+  Interceptor(InterceptorConfig),
 }
 
 pub fn build_middleware(cfg: &MiddlewareConfig) -> Result<Box<dyn Middleware>, String> {
@@ -63,5 +65,6 @@ pub fn build_middleware(cfg: &MiddlewareConfig) -> Result<Box<dyn Middleware>, S
     }
     MiddlewareType::RateLimit(v) => Ok(Box::new(RateLimitMiddleware::from_config(v.clone())?)),
     MiddlewareType::Cors(v) => Ok(Box::new(CorsMiddleware::from_config(v.clone())?)),
+    MiddlewareType::Interceptor(v) => Ok(Box::new(InterceptorMiddleware::from_config(v.clone())?)),
   }
 }

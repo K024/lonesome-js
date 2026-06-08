@@ -6,11 +6,10 @@ use pingora::ErrorType;
 
 use crate::virtual_js::socket::VirtualJsSocketState;
 
-use super::registry_types::{ConnectContext, Interceptor, InterceptorTsfn, Listener, ListenerTsfn};
+use super::registry_types::{ConnectContext, Listener, ListenerTsfn};
 
 pub struct Registry {
   listeners: RwLock<HashMap<String, Arc<Listener>>>,
-  interceptors: RwLock<HashMap<String, Arc<Interceptor>>>,
   sockets: RwLock<HashMap<String, Arc<VirtualJsSocketState>>>,
   seq: AtomicU64,
 }
@@ -19,7 +18,6 @@ impl Default for Registry {
   fn default() -> Self {
     Self {
       listeners: RwLock::new(HashMap::new()),
-      interceptors: RwLock::new(HashMap::new()),
       sockets: RwLock::new(HashMap::new()),
       seq: AtomicU64::new(0),
     }
@@ -49,50 +47,14 @@ impl Registry {
     Ok(listeners.remove(key).is_some())
   }
 
-  pub fn register_interceptor(
-    &self,
-    path: String,
-    on_intercept: InterceptorTsfn,
-  ) -> Result<(), String> {
-    let mut interceptors = self
-      .interceptors
-      .write()
-      .map_err(|_| "virtual interceptors rwlock poisoned".to_string())?;
-
-    if interceptors.contains_key(&path) {
-      return Err(format!("virtual interceptor '{path}' already exists"));
-    }
-
-    interceptors.insert(path.clone(), Arc::new(Interceptor { path, on_intercept }));
-    Ok(())
-  }
-
-  pub fn unregister_interceptor(&self, path: &str) -> Result<bool, String> {
-    let mut interceptors = self
-      .interceptors
-      .write()
-      .map_err(|_| "virtual interceptors rwlock poisoned".to_string())?;
-    Ok(interceptors.remove(path).is_some())
-  }
-
   pub fn init_connect(&self, key: &str) -> pingora::Result<ConnectContext> {
-    let interceptor = self
-      .interceptors
-      .read()
-      .map_err(|_| pingora::Error::new(ErrorType::InternalError))?
-      .get(key)
-      .cloned();
-
     let conn_id = self.next_conn_id(key);
 
     self
       .attach_socket_state(conn_id.clone(), VirtualJsSocketState::new())
       .map_err(|_| pingora::Error::new(ErrorType::InternalError))?;
 
-    Ok(ConnectContext {
-      interceptor,
-      conn_id,
-    })
+    Ok(ConnectContext { conn_id })
   }
 
   pub fn listener(&self, key: &str) -> pingora::Result<Arc<Listener>> {
@@ -124,7 +86,7 @@ impl Registry {
 
   fn next_conn_id(&self, key: &str) -> String {
     let n = self.seq.fetch_add(1, Ordering::Relaxed);
-    format!("{key}:{n}")
+    format!("{key}:conn:{n}")
   }
 
   fn attach_socket_state(
