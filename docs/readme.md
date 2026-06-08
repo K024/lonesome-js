@@ -105,3 +105,5 @@ For complete route and upstream typing details, see the linked docs below.
 - Route management and hot updates: [route.md](./route.md)
 - CEL expressions and runtime evaluation: [cel.md](./cel.md)
 - In-process JS upstreams: [virtual_js.md](./virtual_js.md)
+- JavaScript request interceptors: [interceptor.md](./interceptor.md)
+- Middleware reference: [middlewares/readme.md](./middlewares/readme.md)

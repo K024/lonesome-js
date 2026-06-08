@@ -80,8 +80,13 @@ pub fn virtual_open_connection(
   if !tls && h2c {
     options.set_http_version(2, 2);
   }
-  // pingora currently rejects all reuses of virtual streams (matches_fd(-1) is always false)
-  // explicitly disable connection pooling for virtual connections
+  // Pingora virtual L4 streams do not have an OS fd/socket. In pingora-core 0.8.x,
+  // Stream::id() returns -1 on Unix (INVALID_SOCKET on Windows) for virtual streams,
+  // and the reusable-connection path still validates idle streams through
+  // peer.matches_fd()/matches_sock() before test_reusable_stream(). That validation
+  // cannot pass for virtual streams today (see cloudflare/pingora#883), so pooling
+  // would only add failed reuse probes. Disable pooling explicitly until Pingora
+  // exposes a virtual-stream-aware reuse check.
   options.idle_timeout = Some(std::time::Duration::from_secs(0));
   options.custom_l4 = Some(Arc::new(VirtualJsConnector::new(key.to_string())));
   peer.options = options;

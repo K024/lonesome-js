@@ -10,6 +10,7 @@ High-performance programmable reverse proxy bindings for Node.js, built on top o
 - Runtime route updates (`addOrUpdate`) with Node.js without process restarts.
 - Request matching and middleware conditions powered by CEL expressions.
 - `virtual_js` upstream mode for in-process Node.js service composition.
+- Route middlewares for auth, headers, redirects, caching, compression, CORS, rate limiting, and programmable interception.
 
 ## How It Differs From Traditional Reverse Proxies
 
@@ -83,4 +84,5 @@ server.addOrUpdate({
 - Route lifecycle and hot updates: [docs/route.md](./docs/route.md)
 - CEL expressions: [docs/cel.md](./docs/cel.md)
 - `virtual_js` upstreams: [docs/virtual_js.md](./docs/virtual_js.md)
-- Middlewares: *TODO*
+- Interceptor middleware: [docs/interceptor.md](./docs/interceptor.md)
+- Middlewares: [docs/middlewares/readme.md](./docs/middlewares/readme.md)

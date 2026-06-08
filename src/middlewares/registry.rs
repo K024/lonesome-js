@@ -22,49 +22,49 @@ use crate::middlewares::Middleware;
 #[derive(Clone, Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum MiddlewareType {
-  RewriteMethod(RewriteMethodConfig),
-  SetVariable(SetVariableConfig),
   BasicAuth(BasicAuthConfig),
-  Jwt(JwtConfig),
-  RequestHeaders(RequestHeadersConfig),
-  ResponseHeaders(ResponseHeadersConfig),
-  Compression(CompressionConfig),
-  HealthCheck(HealthCheckConfig),
   Cache(CacheConfig),
-  Rewrite(RewriteConfig),
-  Respond(RespondConfig),
+  Compression(CompressionConfig),
+  Cors(CorsConfig),
+  HealthCheck(HealthCheckConfig),
+  Interceptor(InterceptorConfig),
+  Jwt(JwtConfig),
+  RateLimit(RateLimitConfig),
   Redirect(RedirectConfig),
   RedirectHttps(RedirectHttpsConfig),
-  RateLimit(RateLimitConfig),
-  Cors(CorsConfig),
-  Interceptor(InterceptorConfig),
+  RequestHeaders(RequestHeadersConfig),
+  Respond(RespondConfig),
+  ResponseHeaders(ResponseHeadersConfig),
+  Rewrite(RewriteConfig),
+  RewriteMethod(RewriteMethodConfig),
+  SetVariable(SetVariableConfig),
 }
 
 pub fn build_middleware(cfg: &MiddlewareConfig) -> Result<Box<dyn Middleware>, String> {
   match &cfg.r#type {
-    MiddlewareType::RewriteMethod(v) => {
-      Ok(Box::new(RewriteMethodMiddleware::from_config(v.clone())?))
-    }
-    MiddlewareType::SetVariable(v) => Ok(Box::new(SetVariableMiddleware::from_config(v.clone())?)),
     MiddlewareType::BasicAuth(v) => Ok(Box::new(BasicAuthMiddleware::from_config(v.clone())?)),
-    MiddlewareType::Jwt(v) => Ok(Box::new(JwtMiddleware::from_config(v.clone())?)),
-    MiddlewareType::RequestHeaders(v) => {
-      Ok(Box::new(RequestHeadersMiddleware::from_config(v.clone())?))
-    }
-    MiddlewareType::ResponseHeaders(v) => {
-      Ok(Box::new(ResponseHeadersMiddleware::from_config(v.clone())?))
-    }
-    MiddlewareType::Compression(v) => Ok(Box::new(CompressionMiddleware::from_config(v.clone())?)),
-    MiddlewareType::HealthCheck(v) => Ok(Box::new(HealthCheckMiddleware::from_config(v.clone())?)),
     MiddlewareType::Cache(v) => Ok(Box::new(CacheMiddleware::from_config(v.clone())?)),
-    MiddlewareType::Rewrite(v) => Ok(Box::new(RewriteMiddleware::from_config(v.clone())?)),
-    MiddlewareType::Respond(v) => Ok(Box::new(RespondMiddleware::from_config(v.clone())?)),
+    MiddlewareType::Compression(v) => Ok(Box::new(CompressionMiddleware::from_config(v.clone())?)),
+    MiddlewareType::Cors(v) => Ok(Box::new(CorsMiddleware::from_config(v.clone())?)),
+    MiddlewareType::HealthCheck(v) => Ok(Box::new(HealthCheckMiddleware::from_config(v.clone())?)),
+    MiddlewareType::Interceptor(v) => Ok(Box::new(InterceptorMiddleware::from_config(v.clone())?)),
+    MiddlewareType::Jwt(v) => Ok(Box::new(JwtMiddleware::from_config(v.clone())?)),
+    MiddlewareType::RateLimit(v) => Ok(Box::new(RateLimitMiddleware::from_config(v.clone())?)),
     MiddlewareType::Redirect(v) => Ok(Box::new(RedirectMiddleware::from_config(v.clone())?)),
     MiddlewareType::RedirectHttps(v) => {
       Ok(Box::new(RedirectHttpsMiddleware::from_config(v.clone())?))
     }
-    MiddlewareType::RateLimit(v) => Ok(Box::new(RateLimitMiddleware::from_config(v.clone())?)),
-    MiddlewareType::Cors(v) => Ok(Box::new(CorsMiddleware::from_config(v.clone())?)),
-    MiddlewareType::Interceptor(v) => Ok(Box::new(InterceptorMiddleware::from_config(v.clone())?)),
+    MiddlewareType::RequestHeaders(v) => {
+      Ok(Box::new(RequestHeadersMiddleware::from_config(v.clone())?))
+    }
+    MiddlewareType::Respond(v) => Ok(Box::new(RespondMiddleware::from_config(v.clone())?)),
+    MiddlewareType::ResponseHeaders(v) => {
+      Ok(Box::new(ResponseHeadersMiddleware::from_config(v.clone())?))
+    }
+    MiddlewareType::Rewrite(v) => Ok(Box::new(RewriteMiddleware::from_config(v.clone())?)),
+    MiddlewareType::RewriteMethod(v) => {
+      Ok(Box::new(RewriteMethodMiddleware::from_config(v.clone())?))
+    }
+    MiddlewareType::SetVariable(v) => Ok(Box::new(SetVariableMiddleware::from_config(v.clone())?)),
   }
 }

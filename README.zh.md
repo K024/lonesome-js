@@ -10,6 +10,7 @@
 - 通过 `addOrUpdate` 支持 Node.js 运行时路由热更新，无需重启进程。
 - 路由匹配与中间件条件由 CEL 表达式驱动。
 - 提供 `virtual_js` upstream，可在进程内接入 Node.js 处理链路。
+- 提供认证、Header 改写、重定向、缓存、压缩、CORS、限流与可编程拦截等路由中间件。
 
 ## 与传统反向代理的设计差异
 
@@ -85,4 +86,5 @@ server.addOrUpdate({
 - 路由管理与热更新: [docs/route.md](./docs/route.md)
 - CEL 表达式: [docs/cel.md](./docs/cel.md)
 - `virtual_js` upstream: [docs/virtual_js.md](./docs/virtual_js.md)
-- 中间件：*TODO*
+- Interceptor 中间件: [docs/interceptor.md](./docs/interceptor.md)
+- 中间件: [docs/middlewares/readme.md](./docs/middlewares/readme.md)

@@ -153,6 +153,14 @@ Behavior:
 - Works with `round_robin` and `consistent_hash` selection logic.
 - Weight is honored through backend metadata.
 
+## Connection Reuse
+
+`virtual_js` currently opens a fresh virtual upstream connection for each request. The implementation sets the Pingora peer idle timeout to `0` to keep these streams out of the connection pool.
+
+This is intentional with Pingora 0.8.x: `VirtualSocketStream` has no real OS fd/socket, so Pingora reports `-1` on Unix (and `INVALID_SOCKET` on Windows). Pingora's reusable-stream path still checks idle streams with `peer.matches_fd()` / `peer.matches_sock()` before testing whether the stream is reusable, so virtual streams cannot pass the current validation. This matches the upstream tracking issue [cloudflare/pingora#883](https://github.com/cloudflare/pingora/issues/883). If Pingora adds a virtual-stream-aware reuse check later, this can be revisited.
+
+There is an e2e test (`07-virtual-js-reuse.test.ts`) that asserts two sequential requests produce two distinct virtual `open` events.
+
 ## Failure Modes
 
 - Missing listener key at connect time causes upstream connect failure.
