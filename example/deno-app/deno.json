@@ -1,0 +1,7 @@
+{
+  "tasks": {
+    "types": "deno types > deno.d.ts",
+    "start": "deno run --allow-all --unstable-worker-options main.ts",
+    "check": "deno check main.ts worker.ts lib/*.ts handlers/*.ts"
+  }
+}

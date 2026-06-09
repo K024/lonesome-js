@@ -1,0 +1,35 @@
+{
+  "listeners": [
+    { "kind": "tcp", "addr": "127.0.0.1:18080" }
+  ],
+  "threads": 1,
+  "workStealing": false,
+  "workers": [
+    {
+      "name": "api-worker",
+      "main": "./handlers/api.ts",
+      "port": 19001,
+      "matcher": { "rule": "PathPrefix('/api')", "priority": 50 },
+      "permissions": {
+        "net": ["127.0.0.1:19001"],
+        "read": true,
+        "env": ["ROLE"]
+      },
+      "env": { "ROLE": "api" },
+      "lazy": true
+    },
+    {
+      "name": "static-worker",
+      "main": "./handlers/static.ts",
+      "port": 19002,
+      "matcher": { "rule": "PathPrefix('/static')", "priority": 40 },
+      "permissions": {
+        "net": ["127.0.0.1:19002"],
+        "read": true,
+        "env": ["ROLE"]
+      },
+      "env": { "ROLE": "static" },
+      "lazy": true
+    }
+  ]
+}
