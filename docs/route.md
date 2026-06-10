@@ -46,9 +46,36 @@ const st = server.status() // { running, routeCount }
 server.stop()
 ```
 
+## Load Balancer Notes
+
+When a route has more than one upstream and no `loadBalancer` is provided,
+`lonesome-js` currently defaults to `consistent_hash`. This default works for
+TCP and `virtual_js` upstreams, but it is **not suitable for multiple Unix
+socket upstreams**: Pingora's Ketama consistent-hash implementation only builds
+buckets for inet socket addresses and ignores UDS backends.
+
+If a route has multiple `kind: 'unix'` upstreams, explicitly configure
+`round_robin`:
+
+```ts
+server.addOrUpdate({
+  id: 'uds-workers',
+  matcher: { rule: "PathPrefix('/uds')" },
+  middlewares: [],
+  upstreams: [
+    { kind: 'unix', address: '/tmp/worker-a.sock' },
+    { kind: 'unix', address: '/tmp/worker-b.sock' },
+  ],
+  loadBalancer: { algorithm: 'round_robin' },
+})
+```
+
+> See also Pingora source: pingora-load-balancing/src/selection/consistent.rs:42-46
+
 ## `addOrUpdate` Behavior
 
 `addOrUpdate` handles both create and update:
+
 - If `id` does not exist: create a new route.
 - If `id` exists: replace that route in place.
 
@@ -62,7 +89,13 @@ server.addOrUpdate({
   id: 'mgmt-upd',
   matcher: { rule: "PathPrefix('/mgmt/upd')", priority: 50 },
   middlewares: [],
-  upstreams: [{ kind: 'tcp', address: '127.0.0.1:9000', tls: false, sni: '', weight: 1 }],
+  upstreams: [{
+    kind: 'tcp',
+    address: '127.0.0.1:9000',
+    tls: false,
+    sni: '',
+    weight: 1,
+  }],
 })
 
 // Second write with the same id: switch to 418 short-circuit response
@@ -70,7 +103,13 @@ server.addOrUpdate({
   id: 'mgmt-upd',
   matcher: { rule: "PathPrefix('/mgmt/upd')", priority: 50 },
   middlewares: [{ type: 'respond', config: { status: 418, body: 'teapot' } }],
-  upstreams: [{ kind: 'tcp', address: '127.0.0.1:9000', tls: false, sni: '', weight: 1 }],
+  upstreams: [{
+    kind: 'tcp',
+    address: '127.0.0.1:9000',
+    tls: false,
+    sni: '',
+    weight: 1,
+  }],
 })
 ```
 
@@ -92,6 +131,7 @@ server.addOrUpdate({
 ```
 
 Meaning:
+
 - `running`: whether the server is started.
 - `routeCount`: number of routes currently registered in memory.
 

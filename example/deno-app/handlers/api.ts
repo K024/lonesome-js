@@ -3,7 +3,7 @@
  * Default export must be: (req: Request) => Response | Promise<Response>
  */
 export default function handler(req: Request): Response {
-  const url = new URL(req.url);
+  const url = new URL(req.url)
   return new Response(
     JSON.stringify({
       worker: 'api-worker',
@@ -19,5 +19,5 @@ export default function handler(req: Request): Response {
         'x-worker': 'api-worker',
       },
     },
-  );
+  )
 }

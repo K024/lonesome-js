@@ -91,6 +91,8 @@ impl UpstreamPool {
 
     let lb_cfg = lb_cfg.unwrap_or_else(|| {
       if endpoints.len() > 1 {
+        // NOTE: Pingora Ketama/consistent_hash currently ignores Unix socket backends.
+        // Callers using multiple Unix upstreams should explicitly configure round_robin.
         LoadBalancerConfig {
           algorithm: LoadBalancerAlgorithm::ConsistentHash,
           max_iterations: 32,

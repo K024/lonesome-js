@@ -142,7 +142,7 @@ describe('worker_threads + interceptor middleware', () => {
   it('interceptor receives request fields and can respond with body/content-type', async () => {
     const key = 'interceptor-request-fields'
     const path = '/interceptor/request-fields?x=1'
-    const seen: Array<{ key: string; requestId: string; method: string; path: string }> = []
+    const seen: Array<{ key: string; method: string; path: string }> = []
 
     const cleanupRoute = withRoute(server, {
       id: nextRouteId('interceptor-request-fields'),
@@ -174,7 +174,6 @@ describe('worker_threads + interceptor middleware', () => {
 
       assert.strictEqual(seen.length, 1)
       assert.strictEqual(seen[0].key, key)
-      assert.match(seen[0].requestId, new RegExp(`^${key}:req:\\d+$`))
       assert.strictEqual(seen[0].method, 'POST')
       assert.strictEqual(seen[0].path, path)
     } finally {

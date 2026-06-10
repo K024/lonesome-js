@@ -1,35 +1,55 @@
 {
   "listeners": [
-    { "kind": "tcp", "addr": "127.0.0.1:18080" }
+    {
+      "kind": "tcp",
+      "addr": "127.0.0.1:18080"
+    }
   ],
   "threads": 1,
   "workStealing": false,
+  "workerTransport": {
+    "kind": "unix"
+  },
   "workers": [
     {
       "name": "api-worker",
       "main": "./handlers/api.ts",
-      "port": 19001,
-      "matcher": { "rule": "PathPrefix('/api')", "priority": 50 },
-      "permissions": {
-        "net": ["127.0.0.1:19001"],
-        "read": true,
-        "env": ["ROLE"]
+      "matcher": {
+        "rule": "PathPrefix('/api')",
+        "priority": 50
       },
-      "env": { "ROLE": "api" },
-      "lazy": true
+      "permissions": {
+        "read": true,
+        "env": [
+          "ROLE"
+        ]
+      },
+      "env": {
+        "ROLE": "api"
+      },
+      "lazy": false,
+      "replicas": 2
     },
     {
       "name": "static-worker",
       "main": "./handlers/static.ts",
-      "port": 19002,
-      "matcher": { "rule": "PathPrefix('/static')", "priority": 40 },
-      "permissions": {
-        "net": ["127.0.0.1:19002"],
-        "read": true,
-        "env": ["ROLE"]
+      "matcher": {
+        "rule": "PathPrefix('/static')",
+        "priority": 40
       },
-      "env": { "ROLE": "static" },
+      "permissions": {
+        "read": true,
+        "env": [
+          "ROLE"
+        ]
+      },
+      "env": {
+        "ROLE": "static"
+      },
       "lazy": true
     }
-  ]
+  ],
+  "loadBalancer": {
+    "algorithm": "round_robin"
+  }
 }
