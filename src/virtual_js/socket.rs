@@ -4,8 +4,9 @@ use std::io::{Error, ErrorKind};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::task::{Context, Poll, Waker};
+use std::task::{Context, Poll};
 
+use futures::task::AtomicWaker;
 use pingora::protocols::l4::virt::{VirtualSockOpt, VirtualSocket};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
@@ -13,7 +14,6 @@ struct ReadState {
   pending: VecDeque<(Vec<u8>, usize)>,
   eof: bool,
   err: Option<String>,
-  waker: Option<Waker>,
 }
 
 impl ReadState {
@@ -22,7 +22,6 @@ impl ReadState {
       pending: VecDeque::new(),
       eof: false,
       err: None,
-      waker: None,
     }
   }
 }
@@ -34,6 +33,7 @@ pub trait VirtualJsSink: Send + Sync {
 
 pub struct VirtualJsSocketState {
   read: Mutex<ReadState>,
+  read_waker: AtomicWaker,
   closed: AtomicBool,
 }
 
@@ -41,6 +41,7 @@ impl VirtualJsSocketState {
   pub fn new() -> Arc<Self> {
     Arc::new(Self {
       read: Mutex::new(ReadState::new()),
+      read_waker: AtomicWaker::new(),
       closed: AtomicBool::new(false),
     })
   }
@@ -64,9 +65,8 @@ impl VirtualJsSocketState {
     }
 
     state.pending.push_back((data, 0));
-    if let Some(waker) = state.waker.take() {
-      waker.wake();
-    }
+    drop(state);
+    self.read_waker.wake();
     Ok(())
   }
 
@@ -80,9 +80,8 @@ impl VirtualJsSocketState {
       .lock()
       .map_err(|_| "socket read mutex poisoned".to_string())?;
     state.eof = true;
-    if let Some(waker) = state.waker.take() {
-      waker.wake();
-    }
+    drop(state);
+    self.read_waker.wake();
     Ok(())
   }
 
@@ -96,9 +95,8 @@ impl VirtualJsSocketState {
       .lock()
       .map_err(|_| "socket read mutex poisoned".to_string())?;
     state.err = Some(message);
-    if let Some(waker) = state.waker.take() {
-      waker.wake();
-    }
+    drop(state);
+    self.read_waker.wake();
     Ok(())
   }
 }
@@ -137,6 +135,8 @@ impl AsyncRead for VirtualJsSocket {
     cx: &mut Context<'_>,
     buf: &mut ReadBuf<'_>,
   ) -> Poll<std::io::Result<()>> {
+    self.state.read_waker.register(cx.waker());
+
     let mut read = match self.state.read.lock() {
       Ok(v) => v,
       Err(_) => return Poll::Ready(Err(Error::other("socket read mutex poisoned"))),
@@ -173,7 +173,6 @@ impl AsyncRead for VirtualJsSocket {
         return Poll::Ready(Ok(()));
       }
 
-      read.waker = Some(cx.waker().clone());
       return Poll::Pending;
     }
 

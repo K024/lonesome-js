@@ -1,19 +1,24 @@
 use std::collections::HashMap;
-use std::sync::{Arc, OnceLock, RwLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
+use arc_swap::ArcSwap;
 use napi::bindgen_prelude::{Function, Promise};
 use napi::threadsafe_function::ThreadsafeCallContext;
 
 use super::types::{Interceptor, InterceptorCall, InterceptorRequest, InterceptorTsfn};
 
+type InterceptorMap = HashMap<String, Arc<Interceptor>>;
+
 pub struct Registry {
-  interceptors: RwLock<HashMap<String, Arc<Interceptor>>>,
+  interceptors: ArcSwap<InterceptorMap>,
+  write_lock: Mutex<()>,
 }
 
 impl Default for Registry {
   fn default() -> Self {
     Self {
-      interceptors: RwLock::new(HashMap::new()),
+      interceptors: ArcSwap::from_pointee(HashMap::new()),
+      write_lock: Mutex::new(()),
     }
   }
 }
@@ -24,36 +29,41 @@ impl Registry {
     key: String,
     on_intercept: InterceptorTsfn,
   ) -> Result<(), String> {
-    let mut interceptors = self
-      .interceptors
-      .write()
-      .map_err(|_| "interceptors rwlock poisoned".to_string())?;
+    let _guard = self
+      .write_lock
+      .lock()
+      .map_err(|_| "interceptors write lock poisoned".to_string())?;
 
-    if interceptors.contains_key(&key) {
+    let current = self.interceptors.load_full();
+    if current.contains_key(&key) {
       return Err(format!("interceptor '{key}' already exists"));
     }
 
-    interceptors.insert(key.clone(), Arc::new(Interceptor { key, on_intercept }));
+    let mut next = (*current).clone();
+    next.insert(key.clone(), Arc::new(Interceptor { key, on_intercept }));
+    self.interceptors.store(Arc::new(next));
     Ok(())
   }
 
   pub fn unregister_interceptor(&self, key: &str) -> Result<bool, String> {
-    let mut interceptors = self
-      .interceptors
-      .write()
-      .map_err(|_| "interceptors rwlock poisoned".to_string())?;
-    Ok(interceptors.remove(key).is_some())
+    let _guard = self
+      .write_lock
+      .lock()
+      .map_err(|_| "interceptors write lock poisoned".to_string())?;
+
+    let current = self.interceptors.load_full();
+    if !current.contains_key(key) {
+      return Ok(false);
+    }
+
+    let mut next = (*current).clone();
+    let removed = next.remove(key).is_some();
+    self.interceptors.store(Arc::new(next));
+    Ok(removed)
   }
 
   pub fn interceptor(&self, key: &str) -> pingora::Result<Option<Arc<Interceptor>>> {
-    Ok(
-      self
-        .interceptors
-        .read()
-        .map_err(|_| pingora::Error::new(pingora::ErrorType::InternalError))?
-        .get(key)
-        .cloned(),
-    )
+    Ok(self.interceptors.load().get(key).cloned())
   }
 }
 

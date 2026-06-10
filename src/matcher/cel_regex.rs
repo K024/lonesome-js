@@ -1,100 +1,28 @@
-use std::collections::HashMap;
-use std::hash::{DefaultHasher, Hasher};
-use std::sync::{Arc, OnceLock, RwLock};
+use std::sync::{Arc, OnceLock};
 
-use pingora_lru::Lru;
+use dashmap::DashMap;
 use regex::Regex;
 
-const REGEX_CACHE_CAPACITY: usize = 64;
-const REGEX_CACHE_SHARDS: usize = 16;
+type RegexMap = DashMap<String, Arc<Regex>>;
 
-struct CacheState {
-  entries: HashMap<String, Arc<Regex>>,
-}
-
-struct RegexCache {
-  lru: Lru<String, REGEX_CACHE_SHARDS>,
-  state: RwLock<CacheState>,
-}
-
-impl RegexCache {
-  fn new() -> Self {
-    Self {
-      lru: Lru::with_capacity(REGEX_CACHE_CAPACITY, REGEX_CACHE_CAPACITY),
-      state: RwLock::new(CacheState {
-        entries: HashMap::new(),
-      }),
-    }
-  }
-
-  fn key(pattern: &str) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    hasher.write(pattern.as_bytes());
-    hasher.finish()
-  }
-
-  fn get(&self, pattern: &str) -> Option<Arc<Regex>> {
-    let hit = self
-      .state
-      .read()
-      .expect("regex cache state rwlock poisoned")
-      .entries
-      .get(pattern)
-      .cloned();
-
-    if hit.is_some() {
-      let key = Self::key(pattern);
-      let _ = self.lru.promote(key);
-    }
-
-    hit
-  }
-
-  fn insert(&self, pattern: &str, regex: Arc<Regex>) -> Arc<Regex> {
-    let key = Self::key(pattern);
-
-    {
-      let mut state = self
-        .state
-        .write()
-        .expect("regex cache state rwlock poisoned");
-
-      if let Some(existing) = state.entries.get(pattern) {
-        return existing.clone();
-      }
-
-      state.entries.insert(pattern.to_string(), regex.clone());
-    }
-
-    let _ = self.lru.admit(key, pattern.to_string(), 1);
-    let evicted = self.lru.evict_to_limit();
-
-    if !evicted.is_empty() {
-      let mut state = self
-        .state
-        .write()
-        .expect("regex cache state rwlock poisoned");
-      for (evicted_pattern, _) in evicted {
-        state.entries.remove(evicted_pattern.as_str());
-      }
-    }
-
-    regex
-  }
-}
-
-fn global_cache() -> &'static RegexCache {
-  static CACHE: OnceLock<RegexCache> = OnceLock::new();
-  CACHE.get_or_init(RegexCache::new)
+fn global_cache() -> &'static RegexMap {
+  static CACHE: OnceLock<RegexMap> = OnceLock::new();
+  CACHE.get_or_init(DashMap::new)
 }
 
 pub fn compile_cached(pattern: &str) -> Result<Arc<Regex>, regex::Error> {
   if let Some(hit) = global_cache().get(pattern) {
-    return Ok(hit);
+    return Ok(Arc::clone(hit.value()));
   }
 
   let compiled = Arc::new(Regex::new(pattern)?);
-  Ok(global_cache().insert(pattern, compiled))
+  match global_cache().entry(pattern.to_string()) {
+    dashmap::mapref::entry::Entry::Occupied(entry) => Ok(Arc::clone(entry.get())),
+    dashmap::mapref::entry::Entry::Vacant(entry) => {
+      entry.insert(Arc::clone(&compiled));
+      Ok(compiled)
+    }
+  }
 }
 
 pub fn is_match(pattern: &str, input: &str) -> bool {

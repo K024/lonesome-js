@@ -1,6 +1,9 @@
+use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 use std::time::SystemTime;
 
+use arc_swap::ArcSwap;
 use pingora::cache::cache_control::CacheControl;
 use pingora::cache::eviction::simple_lru::Manager;
 use pingora::cache::lock::{CacheKeyLockImpl, CacheLock};
@@ -12,9 +15,8 @@ use pingora::cache::{
 use pingora::http::{RequestHeader, ResponseHeader};
 use pingora::proxy::Session;
 use pingora::Result;
-use std::collections::HashMap;
 use std::sync::LazyLock;
-use std::sync::RwLock;
+use std::sync::Mutex;
 
 use crate::middlewares::middleware::middleware_internal_error;
 use crate::proxy::cache::{CacheKeyParts, ProxyCacheHandler};
@@ -26,8 +28,9 @@ static CACHE_LOCK: LazyLock<Box<CacheKeyLockImpl>> =
   LazyLock::new(|| CacheLock::new_boxed(Duration::from_secs(2)));
 static EVICTION_MANAGER: LazyLock<Manager> = LazyLock::new(|| Manager::new(64 * 1024 * 1024));
 static CACHE_DECISION_DEFAULTS: CacheMetaDefaults = CacheMetaDefaults::new(|_| None, 1, 1);
-static NAMESPACE_PURGE_AT: LazyLock<RwLock<HashMap<String, SystemTime>>> =
-  LazyLock::new(|| RwLock::new(HashMap::new()));
+static NAMESPACE_PURGE_AT: LazyLock<ArcSwap<HashMap<String, SystemTime>>> =
+  LazyLock::new(|| ArcSwap::from_pointee(HashMap::new()));
+static NAMESPACE_PURGE_WRITE_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
 pub(crate) struct CacheHandler {
   max_ttl_secs: u64,
@@ -148,16 +151,7 @@ impl ProxyCacheHandler for CacheHandler {
     _is_fresh: bool,
     ctx: &ProxyCtx,
   ) -> Result<Option<ForcedFreshness>> {
-    let purge_at = NAMESPACE_PURGE_AT
-      .read()
-      .map_err(|_| {
-        middleware_internal_error(
-          "cache purge map read lock poisoned",
-          "cache purge map lock poisoned",
-        )
-      })?
-      .get(&ctx.route_id)
-      .copied();
+    let purge_at = NAMESPACE_PURGE_AT.load().get(&ctx.route_id).copied();
 
     if let Some(ts) = purge_at {
       if meta.updated() <= ts {
@@ -248,10 +242,14 @@ pub async fn purge_route_namespace(route_id: &str) -> Result<(), String> {
     return Ok(());
   }
 
-  NAMESPACE_PURGE_AT
-    .write()
-    .map_err(|_| "cache purge map lock poisoned".to_string())?
-    .insert(route_id.to_string(), SystemTime::now());
+  let _guard = NAMESPACE_PURGE_WRITE_LOCK
+    .lock()
+    .map_err(|_| "cache purge map write lock poisoned".to_string())?;
+
+  let current = NAMESPACE_PURGE_AT.load_full();
+  let mut next = (*current).clone();
+  next.insert(route_id.to_string(), SystemTime::now());
+  NAMESPACE_PURGE_AT.store(Arc::new(next));
 
   Ok(())
 }
