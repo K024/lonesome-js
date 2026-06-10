@@ -12,7 +12,7 @@ use crate::interceptor::{
 pub fn register_interceptor(
   key: String,
   #[napi(
-    ts_arg_type = "(request: { key: string, requestId: string, method: string, path: string }) => Promise<void | undefined | null | { action?: 'continue' } | { action: 'respond', status?: number, body?: string, contentType?: string }>"
+    ts_arg_type = "(request: { key: string, method: string, path: string }) => Promise<void | undefined | null | { action?: 'continue' } | { action: 'respond', status?: number, body?: string, contentType?: string }>"
   )]
   interceptor: Function<'_, (InterceptorRequest,), Promise<Option<serde_json::Value>>>,
 ) -> Result<()> {

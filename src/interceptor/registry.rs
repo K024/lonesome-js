@@ -78,7 +78,6 @@ pub fn register_interceptor(
       Ok(
         (InterceptorRequest {
           key: ctx.value.key,
-          request_id: ctx.value.request_id,
           method: ctx.value.method,
           path: ctx.value.path,
         },)
@@ -100,7 +99,6 @@ pub fn unregister_interceptor(key: String) -> Result<bool, String> {
 
 pub async fn run_interceptor(
   key: &str,
-  request_id: String,
   method: String,
   path: String,
 ) -> pingora::Result<Option<serde_json::Value>> {
@@ -112,7 +110,6 @@ pub async fn run_interceptor(
     .on_intercept
     .call_async(InterceptorCall {
       key: key.to_string(),
-      request_id,
       method,
       path,
     })

@@ -9,7 +9,6 @@ registerInterceptor(
   key: string,
   interceptor: (request: {
     key: string
-    requestId: string
     method: string
     path: string
   }) => Promise<void | null | { action?: 'continue' } | { action: 'respond', status?: number, body?: string, contentType?: string }>,

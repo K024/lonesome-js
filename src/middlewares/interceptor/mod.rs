@@ -5,7 +5,6 @@ use pingora::proxy::Session;
 use pingora::Result;
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::interceptor::run_interceptor;
 use crate::interceptor::types::{InterceptorAction, InterceptorResult};
@@ -29,21 +28,12 @@ impl InterceptorConfig {
 
 pub struct InterceptorMiddleware {
   key: String,
-  seq: AtomicU64,
 }
 
 impl InterceptorMiddleware {
   pub fn from_config(cfg: InterceptorConfig) -> Result<Self, String> {
     cfg.validate()?;
-    Ok(Self {
-      key: cfg.key,
-      seq: AtomicU64::new(0),
-    })
-  }
-
-  fn next_request_id(&self) -> String {
-    let n = self.seq.fetch_add(1, Ordering::Relaxed);
-    format!("{}:req:{n}", self.key)
+    Ok(Self { key: cfg.key })
   }
 
   fn parse_result(value: JsonValue) -> Result<InterceptorResult> {
@@ -168,9 +158,7 @@ impl Middleware for InterceptorMiddleware {
       .map(|v| v.as_str().to_string())
       .unwrap_or_else(|| req.uri.path().to_string());
 
-    let request_id = self.next_request_id();
-
-    let Some(raw_result) = run_interceptor(&self.key, request_id, method, path).await? else {
+    let Some(raw_result) = run_interceptor(&self.key, method, path).await? else {
       return Ok(false);
     };
 

@@ -13,7 +13,6 @@ pub type InterceptorTsfn = ThreadsafeFunction<
 
 pub struct InterceptorCall {
   pub key: String,
-  pub request_id: String,
   pub method: String,
   pub path: String,
 }
@@ -21,7 +20,6 @@ pub struct InterceptorCall {
 #[napi_derive::napi(object)]
 pub struct InterceptorRequest {
   pub key: String,
-  pub request_id: String,
   pub method: String,
   pub path: String,
 }
