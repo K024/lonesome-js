@@ -1,3 +1,5 @@
+import type { AppEvent } from './types.ts'
+
 /**
  * Registry for lazy worker activation promises.
  * Interceptor callbacks await these; the reducer resolves them on WorkerReady.
@@ -12,7 +14,7 @@ const activations = new Map<string, Activation>()
 
 export function ensureWorkerActive(
   name: string,
-  dispatch: (e: any) => void,
+  dispatch: (event: AppEvent) => void,
 ): Promise<void> {
   const existing = activations.get(name)
   if (existing) return existing.promise

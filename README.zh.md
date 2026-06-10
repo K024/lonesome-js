@@ -78,6 +78,11 @@ server.addOrUpdate({
 })
 ```
 
+## 运行时兼容性
+
+- 主要目标运行时：通过 npm 包在 Node.js 中使用。
+- Deno 可通过 `npm:lonesome-js` 引入，适用于允许 npm/native binding 的本地或服务端场景。示例应用见：[example/deno-app](./example/deno-app)。
+
 ## 文档
 
 以下 `docs/` 文档当前为英文：
