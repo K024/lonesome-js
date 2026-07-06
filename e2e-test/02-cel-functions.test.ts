@@ -109,6 +109,47 @@ describe('CEL response functions', () => {
   })
 })
 
+describe('CEL standard utility functions', () => {
+  before(() => {
+    cleanups.push(withRoute(server, {
+      id: nextRouteId('cel-utils'),
+      matcher: { rule: "PathPrefix('/cel/utils')", priority: 70 },
+      middlewares: [
+        {
+          type: 'respond',
+          config: {
+            status: 200,
+            content_type: 'text/plain; charset=utf-8',
+            body_expression:
+              "(now() >= RequestTime() ? 'true' : 'false') + '|' + (random() >= 0.0 && random() < 1.0 ? 'true' : 'false') + '|' + string(RequestTime())",
+          },
+        },
+      ],
+      upstreams: tcpUpstream(upstream.port),
+    }))
+  })
+
+  it('supports now(), random(), and session RequestTime()', async () => {
+    const before = Date.now()
+    const res = await proxyFetch(proxyPort, '/cel/utils/time-random')
+    const text = await res.text()
+    const after = Date.now()
+
+    assert.strictEqual(res.status, 200)
+    const [nowAfterRequestTime, randomInRange, requestTime] = text.split('|')
+    assert.strictEqual(nowAfterRequestTime, 'true')
+    assert.strictEqual(randomInRange, 'true')
+
+    assert.match(requestTime, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?\+00:00$/)
+    const requestTimeMs = Date.parse(requestTime)
+    assert.ok(Number.isFinite(requestTimeMs), `RequestTime() is not parseable: ${requestTime}`)
+    assert.ok(
+      requestTimeMs >= before - 1000 && requestTimeMs <= after + 1000,
+      `RequestTime() ${requestTime} should be close to the request window`,
+    )
+  })
+})
+
 describe('CEL predicates in rule fields', () => {
   describe('request_headers rule with HeaderRegexp and QueryRegexp', () => {
     before(() => {

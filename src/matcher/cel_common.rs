@@ -3,6 +3,7 @@ use std::str::FromStr;
 use std::sync::{Arc, OnceLock};
 
 use cel::{Context, FunctionContext, Value};
+use chrono::Utc;
 use form_urlencoded;
 use ipnet::IpNet;
 use serde_json::Value as JsonValue;
@@ -164,6 +165,10 @@ fn client_ip_value(ftx: &FunctionContext) -> String {
   with_session(ftx, |s| s.client_ip()).unwrap_or_default()
 }
 
+fn request_time(ftx: &FunctionContext) -> chrono::DateTime<chrono::FixedOffset> {
+  with_session(ftx, |s| s.request_time()).unwrap_or_else(now)
+}
+
 fn response_status_value(ftx: &FunctionContext) -> i64 {
   with_session(ftx, |s| s.response_status_value()).unwrap_or(0)
 }
@@ -217,11 +222,22 @@ fn client_ip_matches(actual: &str, expected: &str) -> bool {
     .unwrap_or(false)
 }
 
+fn now() -> chrono::DateTime<chrono::FixedOffset> {
+  Utc::now().fixed_offset()
+}
+
+fn random() -> f64 {
+  rand::random()
+}
+
 pub fn parent_context() -> &'static Context<'static> {
   static PARENT: OnceLock<Context<'static>> = OnceLock::new();
 
   PARENT.get_or_init(|| {
     let mut ctx = Context::default();
+    ctx.add_function("now", now);
+    ctx.add_function("random", random);
+
     ctx.add_function("Header", header);
     ctx.add_function("HeaderRegexp", header_regexp);
     ctx.add_function("Host", host);
@@ -242,6 +258,7 @@ pub fn parent_context() -> &'static Context<'static> {
     ctx.add_function("PathValue", path_value);
     ctx.add_function("QueryValue", query_value);
     ctx.add_function("ClientIPValue", client_ip_value);
+    ctx.add_function("RequestTime", request_time);
 
     // Response functions
     ctx.add_function("ResponseStatusValue", response_status_value);

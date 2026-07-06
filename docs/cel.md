@@ -28,6 +28,14 @@ CEL is used in three main places:
 
 ## Built-in CEL Functions
 
+### Standard utility functions
+
+- `now()` returns the current UTC timestamp.
+- `random()` returns a random `double` in the range `[0.0, 1.0)`.
+
+These functions use the standard CEL camelCase/lowercase naming style. PascalCase
+functions in this project are reserved for helpers that read request/session data.
+
 ### Predicates (boolean)
 
 - `Host(expected)`
@@ -51,6 +59,7 @@ CEL is used in three main places:
 - `HeaderValue(name)`
 - `QueryValue(name)`
 - `ClientIPValue()`
+- `RequestTime()`
 - `JwtClaimValue(name)`
 - `JwtPayloadValue()`
 

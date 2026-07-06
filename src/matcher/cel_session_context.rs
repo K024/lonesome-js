@@ -2,6 +2,7 @@ use std::sync::{Arc, RwLock};
 
 use cel::objects::{Opaque, OpaqueEq};
 use cel::{Context, Value};
+use chrono::{DateTime, FixedOffset};
 use josekit::jwt::JwtPayload;
 use percent_encoding;
 use pingora::http::{RequestHeader, ResponseHeader};
@@ -23,6 +24,7 @@ pub struct CelHttpSession {
   jwt_payload: RwLock<Option<JwtPayload>>,
   client_addr: Option<SocketAddr>,
   tls_sni: Option<String>,
+  request_time: DateTime<FixedOffset>,
 }
 
 impl Opaque for CelHttpSession {
@@ -56,6 +58,7 @@ impl CelHttpSession {
       jwt_payload: RwLock::new(None),
       client_addr: session.as_downstream().client_addr().cloned(),
       tls_sni,
+      request_time: chrono::Utc::now().fixed_offset(),
     }
   }
 
@@ -133,6 +136,10 @@ impl CelHttpSession {
       .and_then(|addr| addr.as_inet())
       .map(|addr| addr.ip().to_string())
       .unwrap_or_default()
+  }
+
+  pub fn request_time(&self) -> DateTime<FixedOffset> {
+    self.request_time.to_owned()
   }
 
   // response values
