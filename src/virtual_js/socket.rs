@@ -10,6 +10,8 @@ use futures::task::AtomicWaker;
 use pingora::protocols::l4::virt::{VirtualSockOpt, VirtualSocket};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
+use super::registry_types::Listener;
+
 struct ReadState {
   pending: VecDeque<(Vec<u8>, usize)>,
   eof: bool,
@@ -24,11 +26,6 @@ impl ReadState {
       err: None,
     }
   }
-}
-
-pub trait VirtualJsSink: Send + Sync {
-  fn on_write(&self, conn_id: &str, data: &[u8]) -> Result<(), String>;
-  fn on_close(&self, conn_id: &str) -> Result<(), String>;
 }
 
 pub struct VirtualJsSocketState {
@@ -99,12 +96,24 @@ impl VirtualJsSocketState {
     self.read_waker.wake();
     Ok(())
   }
+
+  pub fn abort(&self, message: impl Into<String>) {
+    self.closed.store(true, Ordering::Release);
+
+    if let Ok(mut state) = self.read.lock() {
+      if !state.eof && state.err.is_none() {
+        state.err = Some(message.into());
+      }
+    }
+
+    self.read_waker.wake();
+  }
 }
 
 pub struct VirtualJsSocket {
   conn_id: String,
   state: Arc<VirtualJsSocketState>,
-  sink: Arc<dyn VirtualJsSink>,
+  listener: Arc<Listener>,
 }
 
 impl fmt::Debug for VirtualJsSocket {
@@ -116,15 +125,11 @@ impl fmt::Debug for VirtualJsSocket {
 }
 
 impl VirtualJsSocket {
-  pub fn new(
-    conn_id: String,
-    state: Arc<VirtualJsSocketState>,
-    sink: Arc<dyn VirtualJsSink>,
-  ) -> Self {
+  pub fn new(conn_id: String, state: Arc<VirtualJsSocketState>, listener: Arc<Listener>) -> Self {
     Self {
       conn_id,
       state,
-      sink,
+      listener,
     }
   }
 }
@@ -142,9 +147,9 @@ impl AsyncRead for VirtualJsSocket {
       Err(_) => return Poll::Ready(Err(Error::other("socket read mutex poisoned"))),
     };
 
-    if let Some(message) = read.err.take() {
+    if let Some(message) = read.err.as_ref() {
       self.state.closed.store(true, Ordering::Relaxed);
-      return Poll::Ready(Err(Error::other(message)));
+      return Poll::Ready(Err(Error::other(message.clone())));
     }
 
     while buf.remaining() > 0 {
@@ -191,7 +196,7 @@ impl AsyncWrite for VirtualJsSocket {
     }
 
     self
-      .sink
+      .listener
       .on_write(&self.conn_id, buf)
       .map_err(Error::other)?;
 
@@ -204,7 +209,10 @@ impl AsyncWrite for VirtualJsSocket {
 
   fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
     self.state.closed.store(true, Ordering::Relaxed);
-    self.sink.on_close(&self.conn_id).map_err(Error::other)?;
+    self
+      .listener
+      .on_close(&self.conn_id)
+      .map_err(Error::other)?;
     Poll::Ready(Ok(()))
   }
 }

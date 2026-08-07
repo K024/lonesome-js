@@ -12,10 +12,15 @@ use super::registry_types::{ConnectContext, Listener, ListenerTsfn};
 
 type ListenerMap = HashMap<String, Arc<Listener>>;
 
+struct SocketEntry {
+  state: Arc<VirtualJsSocketState>,
+  listener: Arc<Listener>,
+}
+
 pub struct Registry {
   listeners: ArcSwap<ListenerMap>,
   listener_write_lock: Mutex<()>,
-  sockets: DashMap<String, Arc<VirtualJsSocketState>>,
+  sockets: DashMap<String, SocketEntry>,
   seq: AtomicU64,
 }
 
@@ -43,7 +48,7 @@ impl Registry {
     }
 
     let mut next = (*current).clone();
-    next.insert(key.clone(), Arc::new(Listener { key, on_event }));
+    next.insert(key.clone(), Arc::new(Listener::new(key, on_event)));
     self.listeners.store(Arc::new(next));
     Ok(())
   }
@@ -60,17 +65,39 @@ impl Registry {
     }
 
     let mut next = (*current).clone();
-    let removed = next.remove(key).is_some();
+    let Some(listener) = next.remove(key) else {
+      return Ok(false);
+    };
     self.listeners.store(Arc::new(next));
-    Ok(removed)
+    drop(_guard);
+
+    self.deactivate_listener(&listener);
+    Ok(true)
   }
 
-  pub fn init_connect(&self, key: &str) -> pingora::Result<ConnectContext> {
-    let conn_id = self.next_conn_id(key);
+  pub fn init_connect(&self, listener: Arc<Listener>) -> pingora::Result<ConnectContext> {
+    if !listener.is_active() {
+      return Err(pingora::Error::new(ErrorType::ConnectError));
+    }
+
+    let conn_id = self.next_conn_id(&listener.key);
+    let state = VirtualJsSocketState::new();
+    listener
+      .attach_connection(conn_id.clone(), &state)
+      .map_err(|_| pingora::Error::new(ErrorType::ConnectError))?;
 
     self
-      .attach_socket_state(conn_id.clone(), VirtualJsSocketState::new())
+      .attach_socket_state(conn_id.clone(), state, listener)
       .map_err(|_| pingora::Error::new(ErrorType::InternalError))?;
+
+    if !self
+      .sockets
+      .get(&conn_id)
+      .is_some_and(|entry| entry.listener.is_active())
+    {
+      let _ = self.detach_socket_state(&conn_id);
+      return Err(pingora::Error::new(ErrorType::ConnectError));
+    }
 
     Ok(ConnectContext { conn_id })
   }
@@ -89,13 +116,46 @@ impl Registry {
       self
         .sockets
         .get(conn_id)
-        .map(|entry| Arc::clone(entry.value())),
+        .map(|entry| Arc::clone(&entry.value().state)),
     )
   }
 
   pub fn detach_socket_state(&self, conn_id: &str) -> Result<(), String> {
-    self.sockets.remove(conn_id);
+    if let Some((_, entry)) = self.sockets.remove(conn_id) {
+      entry.listener.detach_connection(conn_id);
+    }
     Ok(())
+  }
+
+  pub fn deactivate_listener_instance(&self, listener: &Arc<Listener>) {
+    let _guard = match self.listener_write_lock.lock() {
+      Ok(guard) => guard,
+      Err(_) => return,
+    };
+
+    let current = self.listeners.load_full();
+    if current
+      .get(&listener.key)
+      .is_some_and(|registered| Arc::ptr_eq(registered, listener))
+    {
+      let mut next = (*current).clone();
+      next.remove(&listener.key);
+      self.listeners.store(Arc::new(next));
+    }
+    drop(_guard);
+
+    self.deactivate_listener(listener);
+  }
+
+  pub fn deactivate_socket_listener(&self, conn_id: &str) {
+    let listener = self
+      .sockets
+      .get(conn_id)
+      .map(|entry| Arc::clone(&entry.listener));
+
+    if let Some(listener) = listener {
+      self.deactivate_listener_instance(&listener);
+    }
   }
 
   fn next_conn_id(&self, key: &str) -> String {
@@ -107,9 +167,23 @@ impl Registry {
     &self,
     conn_id: String,
     state: Arc<VirtualJsSocketState>,
+    listener: Arc<Listener>,
   ) -> Result<(), String> {
-    self.sockets.insert(conn_id, state);
+    self
+      .sockets
+      .insert(conn_id, SocketEntry { state, listener });
     Ok(())
+  }
+
+  fn deactivate_listener(&self, listener: &Arc<Listener>) {
+    for (conn_id, state) in listener.deactivate() {
+      listener.notify_close_best_effort(&conn_id);
+      state.abort(format!(
+        "virtual listener '{}' was unregistered",
+        listener.key
+      ));
+      let _ = self.detach_socket_state(&conn_id);
+    }
   }
 }
 

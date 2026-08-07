@@ -49,11 +49,11 @@
     "test": "tsx --test 'e2e-test/**/*.test.ts'"
   },
   "devDependencies": {
-    "@napi-rs/cli": "^3.7.2",
-    "@types/k6": "^2.0.0",
-    "@types/node": "^26.1.0",
-    "jose": "^6.2.3",
-    "tsx": "^4.23.0",
+    "@napi-rs/cli": "^3.8.2",
+    "@types/k6": "^2.0.1",
+    "@types/node": "^26.1.2",
+    "jose": "^6.2.8",
+    "tsx": "^4.23.9",
     "typescript": "^6.0.3",
     "zx": "^8.8.5"
   }

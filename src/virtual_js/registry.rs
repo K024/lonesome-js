@@ -3,10 +3,24 @@ pub use super::registry_connect::virtual_open_connection;
 
 use super::registry_store::{detach_socket, registry, tsfn_closed};
 use super::registry_types::{Listener, ListenerEventCall};
-use crate::virtual_js::socket::VirtualJsSink;
 
-impl VirtualJsSink for Listener {
-  fn on_write(&self, conn_id: &str, data: &[u8]) -> Result<(), String> {
+impl Listener {
+  pub fn notify_close_best_effort(&self, conn_id: &str) {
+    let _ = self.on_event.call(
+      ListenerEventCall {
+        kind: "close".to_string(),
+        conn_id: conn_id.to_string(),
+        data: Vec::<u8>::new().into(),
+      },
+      napi::threadsafe_function::ThreadsafeFunctionCallMode::NonBlocking,
+    );
+  }
+
+  pub fn on_write(&self, conn_id: &str, data: &[u8]) -> Result<(), String> {
+    if !self.is_active() {
+      return Err(format!("virtual listener '{}' is not active", self.key));
+    }
+
     let status = self.on_event.call(
       ListenerEventCall {
         kind: "write".to_string(),
@@ -18,8 +32,7 @@ impl VirtualJsSink for Listener {
 
     if status != napi::Status::Ok {
       if tsfn_closed(status) {
-        let _ = registry().unregister_listener(&self.key);
-        detach_socket(conn_id);
+        registry().deactivate_socket_listener(conn_id);
       }
       return Err(format!(
         "virtual listener '{}' on_write failed for conn '{}': {status:?}",
@@ -30,7 +43,12 @@ impl VirtualJsSink for Listener {
     Ok(())
   }
 
-  fn on_close(&self, conn_id: &str) -> Result<(), String> {
+  pub fn on_close(&self, conn_id: &str) -> Result<(), String> {
+    if !self.is_active() {
+      detach_socket(conn_id);
+      return Ok(());
+    }
+
     let status = self.on_event.call(
       ListenerEventCall {
         kind: "close".to_string(),
@@ -42,8 +60,7 @@ impl VirtualJsSink for Listener {
 
     if status != napi::Status::Ok {
       if tsfn_closed(status) {
-        let _ = registry().unregister_listener(&self.key);
-        detach_socket(conn_id);
+        registry().deactivate_socket_listener(conn_id);
         return Ok(());
       }
       return Err(format!(

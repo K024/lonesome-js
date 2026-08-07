@@ -218,5 +218,42 @@ describe('virtual_js upstream', () => {
       await res2.text()
       assert.strictEqual(res2.status, 502)
     })
+
+    it('unregister aborts an in-flight virtual request', async () => {
+      cleanupRoute()
+      stopVirtual()
+      stopped = true
+
+      const key = 'test-vjs-unreg-inflight'
+      const vjs = startVirtualUpstream(key, (_req, res) => {
+        setTimeout(() => res.end('late response'), 500)
+      })
+      stopVirtual = () => vjs.stop()
+      stopped = false
+      cleanupRoute = withRoute(server, {
+        id: nextRouteId('vjs-unreg-inflight'),
+        matcher: { rule: "PathPrefix('/vjs/unreg')", priority: 60 },
+        middlewares: [],
+        upstreams: virtualUpstream(key),
+        loadBalancer: { algorithm: 'round_robin', maxIterations: 16 },
+      })
+
+      const result = proxyFetch(proxyPort, '/vjs/unreg/inflight', {
+        signal: AbortSignal.timeout(1_500),
+      })
+        .then(async (res) => {
+          await res.text()
+          return res.status
+        })
+        .catch(() => 0)
+
+      await new Promise<void>((resolve) => setTimeout(resolve, 25))
+      const startedAt = Date.now()
+      stopVirtual()
+      stopped = true
+
+      assert.notStrictEqual(await result, 200)
+      assert.ok(Date.now() - startedAt < 400, 'listener removal should not wait for the delayed response')
+    })
   })
 })

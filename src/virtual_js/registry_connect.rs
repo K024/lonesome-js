@@ -9,35 +9,35 @@ use pingora::protocols::l4::virt::VirtualSocketStream;
 use pingora::upstreams::peer::{HttpPeer, PeerOptions};
 use pingora::ErrorType;
 
-use crate::virtual_js::socket::{VirtualJsSink, VirtualJsSocket};
+use crate::virtual_js::socket::VirtualJsSocket;
 
 use super::registry_store::{detach_socket, registry, tsfn_closed};
-use super::registry_types::ListenerEventCall;
+use super::registry_types::{Listener, ListenerEventCall};
 
 #[derive(Clone)]
 pub struct VirtualJsConnector {
-  key: String,
+  listener: Arc<Listener>,
 }
 
 impl fmt::Debug for VirtualJsConnector {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     f.debug_struct("VirtualJsConnector")
-      .field("key", &self.key)
+      .field("key", &self.listener.key)
       .finish()
   }
 }
 
 impl VirtualJsConnector {
-  pub fn new(key: String) -> Self {
-    Self { key }
+  pub fn new(listener: Arc<Listener>) -> Self {
+    Self { listener }
   }
 }
 
 #[async_trait]
 impl L4Connect for VirtualJsConnector {
   async fn connect(&self, _addr: &SocketAddr) -> pingora::Result<Stream> {
-    let ctx = registry().init_connect(&self.key)?;
-    let listener = registry().listener(&self.key)?;
+    let listener = Arc::clone(&self.listener);
+    let ctx = registry().init_connect(Arc::clone(&listener))?;
 
     if let Err(err) = listener
       .on_event
@@ -49,19 +49,23 @@ impl L4Connect for VirtualJsConnector {
       .await
     {
       if tsfn_closed(err.status) {
-        let _ = registry().unregister_listener(&self.key);
+        registry().deactivate_listener_instance(&listener);
       }
       detach_socket(&ctx.conn_id);
       return Err(pingora::Error::new(ErrorType::ConnectError));
     }
 
+    if !listener.is_active() {
+      detach_socket(&ctx.conn_id);
+      return Err(pingora::Error::new(ErrorType::ConnectError));
+    }
+
     // Node handles Duplex creation and server.emit('connection', duplex) on open.
-    let sink: Arc<dyn VirtualJsSink> = listener;
     let state = registry()
       .socket_state(&ctx.conn_id)
       .map_err(|_| pingora::Error::new(ErrorType::InternalError))?
       .ok_or_else(|| pingora::Error::new(ErrorType::ConnectError))?;
-    let socket = VirtualJsSocket::new(ctx.conn_id, state, sink);
+    let socket = VirtualJsSocket::new(ctx.conn_id, state, listener);
     Ok(Stream::from(VirtualSocketStream::new(Box::new(socket))))
   }
 }
@@ -73,6 +77,9 @@ pub fn virtual_open_connection(
   h2c: bool,
   sni: String,
 ) -> Result<HttpPeer, String> {
+  let listener = registry()
+    .listener(key)
+    .map_err(|_| format!("virtual listener '{key}' is not registered"))?;
   let mut peer = HttpPeer::new(dummy_addr, tls, sni);
   let mut options = PeerOptions::new();
   if !tls && h2c {
@@ -86,7 +93,7 @@ pub fn virtual_open_connection(
   // would only add failed reuse probes. Disable pooling explicitly until Pingora
   // exposes a virtual-stream-aware reuse check.
   options.idle_timeout = Some(std::time::Duration::from_secs(0));
-  options.custom_l4 = Some(Arc::new(VirtualJsConnector::new(key.to_string())));
+  options.custom_l4 = Some(Arc::new(VirtualJsConnector::new(listener)));
   peer.options = options;
   Ok(peer)
 }
