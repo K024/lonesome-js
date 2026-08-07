@@ -155,11 +155,21 @@ Behavior:
 
 ## Connection Reuse
 
-`virtual_js` currently opens a fresh virtual upstream connection for each request. The implementation sets the Pingora peer idle timeout to `0` to keep these streams out of the connection pool.
+`virtual_js` reuses idle HTTP/1 upstream connections while their bound listener
+instance remains active. The repository carries a narrowly scoped
+`pingora-core 0.8.1` patch that makes virtual streams opt into pooling
+explicitly; ordinary virtual streams remain non-reusable by default.
 
-This is intentional with Pingora 0.8.x: `VirtualSocketStream` has no real OS fd/socket, so Pingora reports `-1` on Unix (and `INVALID_SOCKET` on Windows). Pingora's reusable-stream path still checks idle streams with `peer.matches_fd()` / `peer.matches_sock()` before testing whether the stream is reusable, so virtual streams cannot pass the current validation. This matches the upstream tracking issue [cloudflare/pingora#883](https://github.com/cloudflare/pingora/issues/883). If Pingora adds a virtual-stream-aware reuse check later, this can be revisited.
+The virtual stream is checked both before entering and before leaving the
+Pingora connection pool. It bypasses the OS fd/socket identity check only when
+its own listener is still active and the socket has not been aborted. Pingora's
+idle read probe still runs, so EOF, socket errors, or unexpected idle data
+reject reuse.
 
-There is an e2e test (`07-virtual-js-reuse.test.ts`) that asserts two sequential requests produce two distinct virtual `open` events.
+`unregisterVirtualListener()` invalidates the listener instance and actively
+aborts all of its associated virtual sockets. A pooled connection bound to that
+listener is therefore not reused, and an in-flight request is woken and fails
+promptly. The e2e tests cover sequential reuse and listener removal.
 
 ## Failure Modes
 

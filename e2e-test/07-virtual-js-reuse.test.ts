@@ -6,7 +6,7 @@ import { proxyFetch } from './helpers/request.js'
 import { nextRouteId, virtualUpstream, withRoute } from './helpers/routes.js'
 import { startVirtualUpstream } from './helpers/virtual.js'
 
-const VIRTUAL_JS_KEY = 'test-vjs-no-reuse'
+const VIRTUAL_JS_KEY = 'test-vjs-reuse'
 
 let server: LonesomeServer
 let proxyPort: number
@@ -32,8 +32,8 @@ describe('virtual_js upstream reuse', () => {
     getOpenedConnIds = () => virtual.getOpenedConnIds()
 
     cleanupRoute = withRoute(server, {
-      id: nextRouteId('vjs-no-reuse'),
-      matcher: { rule: "PathPrefix('/vjs/no-reuse')", priority: 70 },
+      id: nextRouteId('vjs-reuse'),
+      matcher: { rule: "PathPrefix('/vjs/reuse')", priority: 70 },
       middlewares: [],
       upstreams: virtualUpstream(VIRTUAL_JS_KEY),
       loadBalancer: { algorithm: 'round_robin', maxIterations: 16 },
@@ -45,20 +45,20 @@ describe('virtual_js upstream reuse', () => {
     stopVirtual()
   })
 
-  it('opens a fresh virtual upstream connection for each request', async () => {
-    const res1 = await proxyFetch(proxyPort, '/vjs/no-reuse/first')
+  it('reuses an idle virtual upstream connection for sequential requests', async () => {
+    const res1 = await proxyFetch(proxyPort, '/vjs/reuse/first')
     await res1.text()
     assert.strictEqual(res1.status, 200)
 
-    const res2 = await proxyFetch(proxyPort, '/vjs/no-reuse/second')
+    const res2 = await proxyFetch(proxyPort, '/vjs/reuse/second')
     await res2.text()
     assert.strictEqual(res2.status, 200)
 
     assert.strictEqual(
       getOpenCount(),
-      2,
-      `expected two virtual upstream open events, got ${getOpenCount()} with connIds=${getOpenedConnIds().join(',')}`,
+      1,
+      `expected one reused virtual upstream connection, got ${getOpenCount()} opens with connIds=${getOpenedConnIds().join(',')}`,
     )
-    assert.notStrictEqual(getOpenedConnIds()[0], getOpenedConnIds()[1])
+    assert.ok(getOpenedConnIds()[0])
   })
 })

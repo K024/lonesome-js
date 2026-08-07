@@ -1,0 +1,254 @@
+diff --git a/src/connectors/mod.rs b/src/connectors/mod.rs
+index 3e3c1c4..75c0db4 100644
+--- a/src/connectors/mod.rs
++++ b/src/connectors/mod.rs
+@@ -211,29 +211,11 @@ impl TransportConnector {
+                         let mut stream = l.into_inner();
+                         // test_reusable_stream: we assume server would never actively send data
+                         // first on an idle stream.
+-                        #[cfg(unix)]
+-                        if peer.matches_fd(stream.id()) && test_reusable_stream(&mut stream) {
++                        if peer.matches_stream(&stream) && test_reusable_stream(&mut stream) {
+                             Some(stream)
+                         } else {
+                             None
+                         }
+-                        #[cfg(windows)]
+-                        {
+-                            use std::os::windows::io::{AsRawSocket, RawSocket};
+-                            struct WrappedRawSocket(RawSocket);
+-                            impl AsRawSocket for WrappedRawSocket {
+-                                fn as_raw_socket(&self) -> RawSocket {
+-                                    self.0
+-                                }
+-                            }
+-                            if peer.matches_sock(WrappedRawSocket(stream.id() as RawSocket))
+-                                && test_reusable_stream(&mut stream)
+-                            {
+-                                Some(stream)
+-                            } else {
+-                                None
+-                            }
+-                        }
+                     }
+                     Err(_) => {
+                         error!("failed to acquire reusable stream");
+@@ -261,6 +243,9 @@ impl TransportConnector {
+         key: u64, // usually peer.reuse_hash()
+         idle_timeout: Option<std::time::Duration>,
+     ) {
++        if !stream.reuse_permitted() {
++            return;
++        }
+         if !test_reusable_stream(&mut stream) {
+             return;
+         }
+diff --git a/src/protocols/l4/stream.rs b/src/protocols/l4/stream.rs
+index 4aa70f7..6831d39 100644
+--- a/src/protocols/l4/stream.rs
++++ b/src/protocols/l4/stream.rs
+@@ -395,6 +395,20 @@ impl Stream {
+         self.stream.as_mut().expect("stream should always be set")
+     }
+
++    pub(crate) fn reuse_permitted(&self) -> bool {
++        match &self.stream().get_ref().stream {
++            RawStream::Virtual(stream) => stream.is_reusable(),
++            _ => true,
++        }
++    }
++
++    pub(crate) fn is_reusable_virtual(&self) -> bool {
++        match &self.stream().get_ref().stream {
++            RawStream::Virtual(stream) => stream.is_reusable(),
++            _ => false,
++        }
++    }
++
+     /// set TCP nodelay for this connection if `self` is TCP
+     pub fn set_nodelay(&mut self) -> Result<()> {
+         match &self.stream_mut().get_mut().stream {
+diff --git a/src/protocols/l4/virt.rs b/src/protocols/l4/virt.rs
+index 5148e41..5e56913 100644
+--- a/src/protocols/l4/virt.rs
++++ b/src/protocols/l4/virt.rs
+@@ -21,6 +21,15 @@ pub enum VirtualSockOpt {
+ pub trait VirtualSocket: AsyncRead + AsyncWrite + Unpin + Send + Sync + std::fmt::Debug {
+     /// Set a socket option.
+     fn set_socket_option(&self, opt: VirtualSockOpt) -> std::io::Result<()>;
++
++    /// Whether this virtual socket is currently safe to retain and reuse.
++    ///
++    /// Virtual transports opt out by default because they have no OS socket
++    /// identity. Implementations must explicitly opt in and return `false`
++    /// whenever their backing transport has been closed or invalidated.
++    fn is_reusable(&self) -> bool {
++        false
++    }
+ }
+
+ /// Wrapper around any type implementing  [`VirtualSocket`].
+@@ -38,6 +47,11 @@ impl VirtualSocketStream {
+     pub fn set_socket_option(&self, opt: VirtualSockOpt) -> std::io::Result<()> {
+         self.socket.set_socket_option(opt)
+     }
++
++    #[inline]
++    pub fn is_reusable(&self) -> bool {
++        self.socket.is_reusable()
++    }
+ }
+
+ impl AsyncRead for VirtualSocketStream {
+diff --git a/src/protocols/mod.rs b/src/protocols/mod.rs
+index 1f8cce0..a5e998f 100644
+--- a/src/protocols/mod.rs
++++ b/src/protocols/mod.rs
+@@ -104,6 +104,13 @@ pub trait IO:
+     fn as_any(&self) -> &dyn Any;
+     /// helper to cast back of the concrete type
+     fn into_any(self: Box<Self>) -> Box<dyn Any>;
++    /// Whether this transport may currently enter the connection reuse pool.
++    fn reuse_permitted(&self) -> bool {
++        self
++            .as_any()
++            .downcast_ref::<crate::protocols::l4::stream::Stream>()
++            .map_or(true, crate::protocols::l4::stream::Stream::reuse_permitted)
++    }
+ }
+
+ impl<
+@@ -283,7 +290,7 @@ use log::{debug, error};
+ #[cfg(unix)]
+ use nix::sys::socket::{getpeername, SockaddrStorage, UnixAddr};
+ #[cfg(unix)]
+-use std::os::unix::prelude::AsRawFd;
++use std::os::unix::prelude::{AsRawFd, OsStrExt};
+ #[cfg(windows)]
+ use std::os::windows::io::AsRawSocket;
+ use std::{net::SocketAddr as InetSocketAddr, path::Path};
+@@ -317,21 +324,23 @@ impl ConnFdReusable for Path {
+     fn check_fd_match<V: AsRawFd>(&self, fd: V) -> bool {
+         let fd = fd.as_raw_fd();
+         match getpeername::<UnixAddr>(fd) {
+-            Ok(peer) => match UnixAddr::new(self) {
+-                Ok(addr) => {
+-                    if addr == peer {
+-                        debug!("Unix FD to: {peer} is reusable");
+-                        true
+-                    } else {
+-                        error!("Crit: unix FD mismatch: fd: {fd:?}, peer: {peer}, addr: {addr}",);
+-                        false
+-                    }
+-                }
+-                Err(e) => {
+-                    error!("Bad addr: {self:?}, error: {e:?}");
++            Ok(peer) => {
++                let peer_path = peer.path().map(|path| {
++                    let bytes = path.as_os_str().as_bytes();
++                    let end = bytes
++                        .iter()
++                        .rposition(|byte| *byte != 0)
++                        .map_or(0, |idx| idx + 1);
++                    &bytes[..end]
++                });
++                if peer_path == Some(self.as_os_str().as_bytes()) {
++                    debug!("Unix FD to: {peer} is reusable");
++                    true
++                } else {
++                    error!("Crit: unix FD mismatch: fd: {fd:?}, peer: {peer}, addr: {self:?}",);
+                     false
+                 }
+-            },
++            }
+             Err(e) => {
+                 error!("Idle unix connection is broken: {e:?}");
+                 false
+diff --git a/src/upstreams/peer.rs b/src/upstreams/peer.rs
+index c9ae0a6..49cf9f7 100644
+--- a/src/upstreams/peer.rs
++++ b/src/upstreams/peer.rs
+@@ -16,6 +16,7 @@
+
+ use crate::connectors::{l4::BindTo, L4Connect};
+ use crate::protocols::l4::socket::SocketAddr;
++use crate::protocols::Stream;
+ use crate::protocols::tls::CaType;
+ #[cfg(feature = "openssl_derived")]
+ use crate::protocols::tls::HandshakeCompleteHook;
+@@ -260,6 +261,39 @@ pub trait Peer: Display + Clone {
+         self.address().check_fd_match(fd)
+     }
+
++    /// Decide whether an idle stream belongs to this peer and may be reused.
++    ///
++    /// TCP and Unix streams are validated through their OS socket identity.
++    /// Virtual streams can opt in through their transport-level reuse state.
++    fn matches_stream(&self, stream: &Stream) -> bool {
++        if stream
++            .as_any()
++            .downcast_ref::<crate::protocols::l4::stream::Stream>()
++            .is_some_and(crate::protocols::l4::stream::Stream::is_reusable_virtual)
++        {
++            return true;
++        }
++
++        #[cfg(unix)]
++        {
++            return self.matches_fd(stream.id());
++        }
++
++        #[cfg(windows)]
++        {
++            use std::os::windows::io::{AsRawSocket, RawSocket};
++
++            struct WrappedRawSocket(RawSocket);
++            impl AsRawSocket for WrappedRawSocket {
++                fn as_raw_socket(&self) -> RawSocket {
++                    self.0
++                }
++            }
++
++            return self.matches_sock(WrappedRawSocket(stream.id() as RawSocket));
++        }
++    }
++
+     #[cfg(windows)]
+     fn matches_sock<V: AsRawSocket>(&self, sock: V) -> bool {
+         use crate::protocols::ConnSockReusable;
+@@ -743,6 +777,35 @@ impl Peer for HttpPeer {
+         }
+     }
+
++    fn matches_stream(&self, stream: &Stream) -> bool {
++        if stream
++            .as_any()
++            .downcast_ref::<crate::protocols::l4::stream::Stream>()
++            .is_some_and(crate::protocols::l4::stream::Stream::is_reusable_virtual)
++        {
++            return true;
++        }
++
++        #[cfg(unix)]
++        {
++            return self.matches_fd(stream.id());
++        }
++
++        #[cfg(windows)]
++        {
++            use std::os::windows::io::{AsRawSocket, RawSocket};
++
++            struct WrappedRawSocket(RawSocket);
++            impl AsRawSocket for WrappedRawSocket {
++                fn as_raw_socket(&self) -> RawSocket {
++                    self.0
++                }
++            }
++
++            return self.matches_sock(WrappedRawSocket(stream.id() as RawSocket));
++        }
++    }
++
+     #[cfg(windows)]
+     fn matches_sock<V: AsRawSocket>(&self, sock: V) -> bool {
+         use crate::protocols::ConnSockReusable;

@@ -39,14 +39,15 @@
   },
   "scripts": {
     "artifacts": "napi artifacts",
-    "build": "napi build --esm --output-dir dist --platform --release",
-    "build:debug": "napi build --esm --output-dir dist --platform",
+    "prepare:rust-patches": "node scripts/prepare-rust-patches.mjs",
+    "build": "npm run prepare:rust-patches && napi build --esm --output-dir dist --platform --release",
+    "build:debug": "npm run prepare:rust-patches && napi build --esm --output-dir dist --platform",
     "bench:list-suites": "tsx bench/index.ts list-suites",
     "bench:setup": "tsx bench/setup.ts start",
     "bench": "tsx bench/index.ts run",
     "version": "napi version",
     "lint": "tsc -b --noEmit",
-    "test": "tsx --test 'e2e-test/**/*.test.ts'"
+    "test": "npm run prepare:rust-patches && tsx --test 'e2e-test/**/*.test.ts'"
   },
   "devDependencies": {
     "@napi-rs/cli": "^3.8.2",

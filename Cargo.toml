@@ -37,6 +37,9 @@ tokio = { version = "1.53.1", features = ["full"] }
 [build-dependencies]
 napi-build = "2"
 
+[patch.crates-io]
+pingora-core = { path = "target/patch/pingora-core-0.8.1" }
+
 [profile.release]
 lto = true
 strip = "symbols"

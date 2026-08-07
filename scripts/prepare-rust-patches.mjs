@@ -1,0 +1,112 @@
+import { createHash } from 'node:crypto'
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
+import { spawnSync } from 'node:child_process'
+
+const root = resolve(import.meta.dirname, '..')
+const crate = {
+  name: 'pingora-core',
+  version: '0.8.1',
+  sha256: '6a7ffe2f5acf9f94fd255cfd1438866bc9124f8f0c7d42562bd3f853df2094b7',
+}
+const archiveName = `${crate.name}-${crate.version}.crate`
+const cacheDirectory = resolve(root, 'target', 'patch-cache')
+const downloadedArchive = resolve(cacheDirectory, archiveName)
+const patch = resolve(root, 'patches', `${crate.name}+${crate.version}.patch`)
+const target = resolve(root, 'target', 'patch', `${crate.name}-${crate.version}`)
+const marker = resolve(target, '.lonesome-patch.json')
+
+function sha256(path) {
+  return createHash('sha256').update(readFileSync(path)).digest('hex')
+}
+
+function run(command, args) {
+  const result = spawnSync(command, args, { cwd: root, encoding: 'utf8' })
+  if (result.status !== 0) {
+    throw new Error(
+      `${command} ${args.join(' ')} failed:\n${result.stderr || result.stdout || 'unknown error'}`,
+    )
+  }
+}
+
+function cargoCacheArchive() {
+  const cargoHome = process.env.CARGO_HOME ?? join(process.env.HOME ?? '', '.cargo')
+  const cacheRoot = join(cargoHome, 'registry', 'cache')
+  if (!existsSync(cacheRoot)) {
+    return null
+  }
+
+  for (const registry of readdirSync(cacheRoot)) {
+    const candidate = join(cacheRoot, registry, archiveName)
+    if (existsSync(candidate) && statSync(candidate).isFile()) {
+      return candidate
+    }
+  }
+
+  return null
+}
+
+async function downloadArchive() {
+  mkdirSync(cacheDirectory, { recursive: true })
+  const response = await fetch(
+    `https://static.crates.io/crates/${crate.name}/${archiveName}`,
+  )
+  if (!response.ok) {
+    throw new Error(`failed to download ${archiveName}: HTTP ${response.status}`)
+  }
+  writeFileSync(downloadedArchive, Buffer.from(await response.arrayBuffer()))
+  return downloadedArchive
+}
+
+if (!existsSync(patch)) {
+  throw new Error(`missing dependency patch: ${patch}`)
+}
+
+let archive = cargoCacheArchive()
+if (!archive) {
+  archive = existsSync(downloadedArchive) ? downloadedArchive : await downloadArchive()
+}
+
+const archiveSha256 = sha256(archive)
+if (archiveSha256 !== crate.sha256) {
+  throw new Error(
+    `unexpected ${crate.name} archive checksum: expected ${crate.sha256}, got ${archiveSha256}`,
+  )
+}
+
+const patchSha256 = sha256(patch)
+if (existsSync(marker)) {
+  const current = JSON.parse(readFileSync(marker, 'utf8'))
+  if (
+    current.crate === crate.name
+    && current.version === crate.version
+    && current.archiveSha256 === archiveSha256
+    && current.patchSha256 === patchSha256
+  ) {
+    process.exit(0)
+  }
+}
+
+rmSync(target, { recursive: true, force: true })
+mkdirSync(dirname(target), { recursive: true })
+run('tar', ['-xzf', archive, '-C', dirname(target)])
+run('git', ['init', '--quiet', target])
+run('git', ['-C', target, 'apply', '--whitespace=nowarn', patch])
+rmSync(resolve(target, '.git'), { recursive: true, force: true })
+writeFileSync(
+  marker,
+  `${JSON.stringify({
+    crate: crate.name,
+    version: crate.version,
+    archiveSha256,
+    patchSha256,
+  }, null, 2)}\n`,
+)

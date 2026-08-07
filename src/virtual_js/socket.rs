@@ -108,6 +108,10 @@ impl VirtualJsSocketState {
 
     self.read_waker.wake();
   }
+
+  pub fn is_closed(&self) -> bool {
+    self.closed.load(Ordering::Acquire)
+  }
 }
 
 pub struct VirtualJsSocket {
@@ -220,5 +224,9 @@ impl AsyncWrite for VirtualJsSocket {
 impl VirtualSocket for VirtualJsSocket {
   fn set_socket_option(&self, _opt: VirtualSockOpt) -> std::io::Result<()> {
     Ok(())
+  }
+
+  fn is_reusable(&self) -> bool {
+    self.listener.is_active() && !self.state.is_closed()
   }
 }
