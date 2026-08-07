@@ -9,6 +9,7 @@ import {
   concurrentStatus,
   constantConcurrencyStatus,
   fetchJson,
+  shutdownWorker,
   spawnCrashedRegisterWorker,
   spawnVirtualWorker,
   waitForWorkerEvent,
@@ -64,9 +65,7 @@ describe('worker_threads + virtual_js upstream', () => {
       assert.strictEqual(restarted.status, 200)
       assert.strictEqual(restarted.body.marker, 'worker-A')
 
-      worker.postMessage({ type: 'shutdown' })
-      await waitForWorkerEvent(worker, 'shutdown-ack')
-      await new Promise<void>((resolve) => worker.once('exit', () => resolve()))
+      await shutdownWorker(worker)
 
       const afterShutdown = await fetchJson(proxyPort, path)
       assert.strictEqual(afterShutdown.status, 502)
@@ -114,9 +113,7 @@ describe('worker_threads + virtual_js upstream', () => {
         `unexpected statuses after recovery: ${recoveredStatuses.join(',')}`,
       )
 
-      worker.postMessage({ type: 'shutdown' })
-      await waitForWorkerEvent(worker, 'shutdown-ack')
-      await new Promise<void>((resolve) => worker.once('exit', () => resolve()))
+      await shutdownWorker(worker)
     } finally {
       cleanupRoute()
       if (worker.threadId !== -1) {
@@ -166,9 +163,7 @@ describe('worker_threads + virtual_js upstream', () => {
         assert.strictEqual(recovered.status, 200)
         assert.strictEqual(recovered.body.marker, 'worker-D')
 
-        workerB.postMessage({ type: 'shutdown' })
-        await waitForWorkerEvent(workerB, 'shutdown-ack')
-        await new Promise<void>((resolve) => workerB.once('exit', () => resolve()))
+        await shutdownWorker(workerB)
       } finally {
         if (workerB.threadId !== -1) {
           await workerB.terminate()
@@ -260,9 +255,7 @@ describe('worker_threads + virtual_js upstream', () => {
         const recovered = await concurrentStatus(proxyPort, path, 16)
         assert.ok(recovered.every((status) => status === 200))
 
-        workerRecover.postMessage({ type: 'shutdown' })
-        await waitForWorkerEvent(workerRecover, 'shutdown-ack')
-        await new Promise<void>((resolve) => workerRecover.once('exit', () => resolve()))
+        await shutdownWorker(workerRecover)
       } finally {
         if (workerRecover.threadId !== -1) {
           await workerRecover.terminate()

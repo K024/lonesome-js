@@ -53,6 +53,13 @@ export function waitForWorkerEvent(worker: Worker, expectedType: WorkerEvent['ty
   })
 }
 
+export async function shutdownWorker(worker: Worker): Promise<void> {
+  const exited = new Promise<void>((resolve) => worker.once('exit', () => resolve()))
+  worker.postMessage({ type: 'shutdown' })
+  await waitForWorkerEvent(worker, 'shutdown-ack')
+  await exited
+}
+
 export function spawnVirtualWorker(key: string, marker: string, delayMs = 0): Worker {
   return new Worker(new URL('./virtual-worker.ts', import.meta.url), {
     execArgv: ['--import', 'tsx'],

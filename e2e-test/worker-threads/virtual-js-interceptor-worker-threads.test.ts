@@ -1,6 +1,5 @@
 import { after, before, describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { once } from 'node:events'
 import { proxyFetch } from '../helpers/request.js'
 import type { LonesomeServer } from '../../dist/index.js'
 import {
@@ -13,6 +12,7 @@ import { nextRouteId, virtualUpstream, withRoute } from '../helpers/routes.js'
 import {
   concurrentStatus,
   fetchJson,
+  shutdownWorker,
   spawnVirtualWorker,
   waitForWorkerEvent,
 } from './helpers.js'
@@ -83,9 +83,7 @@ describe('worker_threads + interceptor middleware', () => {
       const worker = workerRef.current
       if (worker && worker.threadId !== -1) {
         try {
-          worker.postMessage({ type: 'shutdown' })
-          await waitForWorkerEvent(worker, 'shutdown-ack')
-          await once(worker, 'exit')
+          await shutdownWorker(worker)
         } catch {
           await worker.terminate()
         }
@@ -125,9 +123,7 @@ describe('worker_threads + interceptor middleware', () => {
       assert.strictEqual(recovered.status, 200)
       assert.strictEqual(recovered.body.marker, 'worker-recover')
 
-      worker.postMessage({ type: 'shutdown' })
-      await waitForWorkerEvent(worker, 'shutdown-ack')
-      await once(worker, 'exit')
+      await shutdownWorker(worker)
     } finally {
       cleanupRoute()
       unregisterInterceptor(key)
@@ -208,9 +204,7 @@ describe('worker_threads + interceptor middleware', () => {
       unregisterVirtualListener(key)
       if (worker.threadId !== -1) {
         try {
-          worker.postMessage({ type: 'shutdown' })
-          await waitForWorkerEvent(worker, 'shutdown-ack')
-          await once(worker, 'exit')
+          await shutdownWorker(worker)
         } catch {
           await worker.terminate()
         }
