@@ -37,6 +37,8 @@ const server = new LonesomeServer()
 
 server.start({ listeners: [{ kind: 'tcp', addr: '127.0.0.1:8080' }] })
 
+server.validate(routeConfig)
+
 server.addOrUpdate(routeConfig)
 
 const removed = server.remove(routeId)
@@ -85,6 +87,29 @@ server.addOrUpdate({
 - If `id` exists: replace that route in place.
 
 The new config takes effect immediately without restarting the process.
+
+## `validate` Behavior
+
+`validate(routeConfig)` checks whether a route can be accepted without changing
+the active route table. It runs the same configuration conversion and route
+construction work as `addOrUpdate`, including:
+
+- basic route, middleware, and upstream configuration checks;
+- CEL compilation for the route matcher and configured CEL expressions;
+- middleware construction; and
+- upstream and load-balancer construction.
+
+It throws when the route is invalid. A successful validation does not register
+the route, replace an existing route, or alter `status().routeCount`.
+
+```ts
+server.validate({
+  id: 'api-next',
+  matcher: { rule: "PathPrefix('/api')" },
+  middlewares: [],
+  upstreams: [{ kind: 'tcp', address: '127.0.0.1:9000' }],
+})
+```
 
 ### Hot Update Example: Add `respond` to an existing route
 

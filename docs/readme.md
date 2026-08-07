@@ -10,6 +10,7 @@ This document is the entry point for the `lonesome-js` docs set.
 class LonesomeServer {
   start(startup: StartupConfig): void
   stop(): void
+  validate(route: RouteConfig): void
   addOrUpdate(route: RouteConfig): void
   remove(routeId: string): boolean
   status(): ServerStatus
@@ -41,6 +42,24 @@ server.stop()
 Notes:
 - Safe to call during controlled shutdown.
 - Existing in-flight request behavior depends on runtime state and transport lifecycle.
+
+### `validate(route)`
+
+Validates a route without registering or replacing it. It uses the same path as
+`addOrUpdate`, including route structure checks, CEL compilation, middleware
+construction, and upstream/load-balancer validation.
+
+```ts
+server.validate({
+  id: 'api-main',
+  matcher: { rule: "PathPrefix('/api')" },
+  middlewares: [],
+  upstreams: [{ kind: 'tcp', address: '127.0.0.1:9000' }],
+})
+```
+
+Use this to fail fast before applying a route update. A successful call does
+not change `status().routeCount` or affect traffic.
 
 ### `addOrUpdate(route)`
 

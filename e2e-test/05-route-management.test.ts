@@ -53,6 +53,39 @@ describe('route management', () => {
     removeRoute(server, id)
   })
 
+  it('validate accepts a valid route without changing the route table', async () => {
+    const before = server.status().routeCount
+    const id = nextRouteId('mgmt-validate')
+
+    server.validate({
+      id,
+      matcher: { rule: "PathPrefix('/mgmt/validate')", priority: 50 },
+      middlewares: [],
+      upstreams: tcpUpstream(upstream1.port),
+    })
+
+    assert.strictEqual(server.status().routeCount, before)
+    await assertStatus(proxyPort, '/mgmt/validate', 404)
+  })
+
+  it('validate rejects invalid routes without changing the route table', () => {
+    const before = server.status().routeCount
+
+    assert.throws(
+      () => {
+        server.validate({
+          id: nextRouteId('mgmt-invalid'),
+          matcher: { rule: 'PathPrefix(' },
+          middlewares: [],
+          upstreams: tcpUpstream(upstream1.port),
+        })
+      },
+      /failed to compile matcher CEL/,
+    )
+
+    assert.strictEqual(server.status().routeCount, before)
+  })
+
   it('status() routeCount decreases after remove', () => {
     const id = nextRouteId('mgmt-dec')
     addRoute(server, {

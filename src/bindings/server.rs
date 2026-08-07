@@ -17,6 +17,11 @@ pub struct LonesomeServer {
   runtime: Mutex<Option<LonesomeRuntime>>,
 }
 
+fn build_route(route: RouteConfig) -> Result<Route> {
+  let cfg: CoreRouteConfig = route.try_into().map_err(to_napi_error)?;
+  Route::from_config(cfg).map_err(to_napi_error)
+}
+
 #[napi]
 impl LonesomeServer {
   #[napi(constructor)]
@@ -53,9 +58,18 @@ impl LonesomeServer {
 
   #[napi]
   pub fn add_or_update(&self, route: RouteConfig) -> Result<()> {
-    let cfg: CoreRouteConfig = route.try_into().map_err(to_napi_error)?;
-    let route = Route::from_config(cfg).map_err(to_napi_error)?;
+    let route = build_route(route)?;
     self.routes.upsert_route(route);
+    Ok(())
+  }
+
+  /// Validates and compiles a route configuration without adding or replacing a route.
+  ///
+  /// This follows the same conversion and construction path as `addOrUpdate`, including
+  /// CEL compilation, middleware construction, and upstream/load-balancer validation.
+  #[napi]
+  pub fn validate(&self, route: RouteConfig) -> Result<()> {
+    let _ = build_route(route)?;
     Ok(())
   }
 
