@@ -77,6 +77,10 @@ const SUITES: Record<string, BenchSetup> = {
 const SUPPORTED_UPSTREAM: UpstreamSelection[] = ['tcp', 'unix', 'virtual_js', 'respond']
 const SUPPORTED_ROUTE: RouteSelection[] = ['simple', 'many']
 const SUPPORTED_PAYLOAD: PayloadSelection[] = ['tiny_hello', 'medium_json']
+const MANY_ROUTE_COUNT = 200
+const MANY_TARGET_INDEX = MANY_ROUTE_COUNT - 1
+const MANY_TARGET_PRIORITY = 0
+const MANY_NOISE_PRIORITY_BASE = MANY_ROUTE_COUNT
 
 function detectOsThreads(): number {
   try {
@@ -148,11 +152,13 @@ export function resolveStartupOptions(input: {
 }
 
 function routeRule(routeMode: RouteSelection): string {
-  return routeMode === 'simple' ? "Path('/bench/target')" : "Path('/bench/r19/target')"
+  return routeMode === 'simple'
+    ? "Path('/bench/target')"
+    : `Path('/bench/r${MANY_TARGET_INDEX}/target')`
 }
 
 function routePath(routeMode: RouteSelection): string {
-  return routeMode === 'simple' ? '/bench/target' : '/bench/r19/target'
+  return routeMode === 'simple' ? '/bench/target' : `/bench/r${MANY_TARGET_INDEX}/target`
 }
 
 function makeResponseHandler(payloadPreset: PayloadPreset) {
@@ -171,7 +177,12 @@ function buildRoute(id: string, setup: BenchSetup, upstreams: UpstreamConfig[]):
 
   return {
     id,
-    matcher: { rule: routeRule(setup.route), priority: 100 },
+    // In the many-route benchmark, keep the matching target behind every
+    // non-matching route so the request exercises the full linear scan.
+    matcher: {
+      rule: routeRule(setup.route),
+      priority: setup.route === 'many' ? MANY_TARGET_PRIORITY : 100,
+    },
     middlewares,
     upstreams,
   }
@@ -181,11 +192,14 @@ function buildNoiseRoutes(server: LonesomeServer, setup: BenchSetup, upstreams: 
   if (setup.route !== 'many') return []
 
   const ids: string[] = []
-  for (let i = 0; i < 19; i++) {
+  for (let i = 0; i < MANY_TARGET_INDEX; i++) {
     const id = nextRouteId(`bench-noise-${i}`)
     server.addOrUpdate({
       id,
-      matcher: { rule: `Path('/bench/r${i}/target')`, priority: 100 - i },
+      matcher: {
+        rule: `Path('/bench/r${i}/target')`,
+        priority: MANY_NOISE_PRIORITY_BASE - i,
+      },
       middlewares: [],
       upstreams,
     })

@@ -4,7 +4,6 @@ use std::sync::{Arc, OnceLock};
 
 use cel::{Context, FunctionContext, Value};
 use chrono::Utc;
-use form_urlencoded;
 use ipnet::IpNet;
 use serde_json::Value as JsonValue;
 
@@ -26,7 +25,7 @@ fn host(ftx: &FunctionContext, expected: Arc<String>) -> bool {
 
 fn host_regexp(ftx: &FunctionContext, pattern: Arc<String>) -> bool {
   with_session(ftx, |session| {
-    cel_regex::is_match(pattern.as_str(), &session.host())
+    cel_regex::is_match(pattern.as_str(), session.host())
   })
   .unwrap_or(false)
 }
@@ -45,14 +44,14 @@ fn path_prefix(ftx: &FunctionContext, prefix: Arc<String>) -> bool {
 
 fn path_regexp(ftx: &FunctionContext, pattern: Arc<String>) -> bool {
   with_session(ftx, |session| {
-    cel_regex::is_match(pattern.as_str(), &session.path())
+    cel_regex::is_match(pattern.as_str(), session.path())
   })
   .unwrap_or(false)
 }
 
 fn client_ip(ftx: &FunctionContext, ip_or_cidr: Arc<String>) -> bool {
   with_session(ftx, |session| {
-    client_ip_matches(&session.client_ip(), ip_or_cidr.as_str())
+    client_ip_matches(session.client_ip(), ip_or_cidr.as_str())
   })
   .unwrap_or(false)
 }
@@ -85,31 +84,21 @@ fn header_regexp(ftx: &FunctionContext, key: Arc<String>, pattern: Arc<String>) 
 
 fn query(ftx: &FunctionContext, key: Arc<String>, value: Arc<String>) -> bool {
   with_session(ftx, |session| {
-    form_urlencoded::parse(
-      session
-        .req_header()
-        .uri
-        .query()
-        .unwrap_or_default()
-        .as_bytes(),
-    )
-    .any(|(k, v)| k.as_ref() == key.as_str() && v.as_ref() == value.as_str())
+    session
+      .query_pairs()
+      .iter()
+      .any(|(k, v)| k == key.as_str() && v == value.as_str())
   })
   .unwrap_or(false)
 }
 
 fn query_regexp(ftx: &FunctionContext, key: Arc<String>, pattern: Arc<String>) -> bool {
   with_session(ftx, |session| {
-    form_urlencoded::parse(
-      session
-        .req_header()
-        .uri
-        .query()
-        .unwrap_or_default()
-        .as_bytes(),
-    )
-    .filter(|(k, _)| k.as_ref() == key.as_str())
-    .any(|(_, v)| cel_regex::is_match(pattern.as_str(), v.as_ref()))
+    session
+      .query_pairs()
+      .iter()
+      .filter(|(k, _)| k == key.as_str())
+      .any(|(_, v)| cel_regex::is_match(pattern.as_str(), v))
   })
   .unwrap_or(false)
 }
@@ -128,41 +117,30 @@ fn header_value(ftx: &FunctionContext, key: Arc<String>) -> String {
 }
 
 fn host_value(ftx: &FunctionContext) -> String {
-  with_session(ftx, |s| s.host()).unwrap_or_default()
+  with_session(ftx, |s| s.host().to_string()).unwrap_or_default()
 }
 
 fn method_value(ftx: &FunctionContext) -> String {
-  with_session(ftx, |s| s.method()).unwrap_or_default()
+  with_session(ftx, |s| s.method().to_string()).unwrap_or_default()
 }
 
 fn path_value(ftx: &FunctionContext) -> String {
-  with_session(ftx, |s| s.path()).unwrap_or_default()
+  with_session(ftx, |s| s.path().to_string()).unwrap_or_default()
 }
 
 fn query_value(ftx: &FunctionContext, key: Arc<String>) -> String {
   with_session(ftx, |session| {
-    form_urlencoded::parse(
-      session
-        .req_header()
-        .uri
-        .query()
-        .unwrap_or_default()
-        .as_bytes(),
-    )
-    .find_map(|(k, v)| {
-      if k.as_ref() == key.as_str() {
-        Some(v.into_owned())
-      } else {
-        None
-      }
-    })
-    .unwrap_or_default()
+    session
+      .query_pairs()
+      .iter()
+      .find_map(|(k, v)| (k == key.as_str()).then(|| v.clone()))
+      .unwrap_or_default()
   })
   .unwrap_or_default()
 }
 
 fn client_ip_value(ftx: &FunctionContext) -> String {
-  with_session(ftx, |s| s.client_ip()).unwrap_or_default()
+  with_session(ftx, |s| s.client_ip().to_string()).unwrap_or_default()
 }
 
 fn request_time(ftx: &FunctionContext) -> chrono::DateTime<chrono::FixedOffset> {

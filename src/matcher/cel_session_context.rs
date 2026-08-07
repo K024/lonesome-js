@@ -1,4 +1,4 @@
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, OnceLock, RwLock};
 
 use cel::objects::{Opaque, OpaqueEq};
 use cel::{Context, Value};
@@ -25,6 +25,10 @@ pub struct CelHttpSession {
   client_addr: Option<SocketAddr>,
   tls_sni: Option<String>,
   request_time: DateTime<FixedOffset>,
+  host: OnceLock<String>,
+  path: OnceLock<String>,
+  client_ip: OnceLock<String>,
+  query_pairs: OnceLock<Vec<(String, String)>>,
 }
 
 impl Opaque for CelHttpSession {
@@ -59,6 +63,10 @@ impl CelHttpSession {
       client_addr: session.as_downstream().client_addr().cloned(),
       tls_sni,
       request_time: chrono::Utc::now().fixed_offset(),
+      host: OnceLock::new(),
+      path: OnceLock::new(),
+      client_ip: OnceLock::new(),
+      query_pairs: OnceLock::new(),
     }
   }
 
@@ -98,44 +106,58 @@ impl CelHttpSession {
     self.client_addr.as_ref()
   }
 
-  pub fn host(&self) -> String {
-    if let Some(sni) = &self.tls_sni {
-      if !sni.is_empty() {
-        return sni.clone();
+  pub fn host(&self) -> &str {
+    self.host.get_or_init(|| {
+      if let Some(sni) = &self.tls_sni {
+        if !sni.is_empty() {
+          return sni.clone();
+        }
       }
-    }
 
+      self
+        .req_header
+        .headers
+        .get("host")
+        .and_then(|v| v.to_str().ok())
+        .map(|h| h.split(':').next().unwrap_or(h).to_string())
+        .or_else(|| {
+          self
+            .req_header
+            .uri
+            .authority()
+            .map(|a| a.host().to_string())
+        })
+        .unwrap_or_default()
+    })
+  }
+
+  pub fn path(&self) -> &str {
     self
-      .req_header
-      .headers
-      .get("host")
-      .and_then(|v| v.to_str().ok())
-      .map(|h| h.split(':').next().unwrap_or(h).to_string())
-      .or_else(|| {
-        self
-          .req_header
-          .uri
-          .authority()
-          .map(|a| a.host().to_string())
-      })
-      .unwrap_or_default()
+      .path
+      .get_or_init(|| decode_path(self.req_header.uri.path()))
   }
 
-  pub fn path(&self) -> String {
-    decode_path(self.req_header.uri.path())
+  pub fn method(&self) -> &str {
+    self.req_header.method.as_str()
   }
 
-  pub fn method(&self) -> String {
-    self.req_header.method.as_str().to_string()
+  pub fn client_ip(&self) -> &str {
+    self.client_ip.get_or_init(|| {
+      self
+        .client_addr
+        .as_ref()
+        .and_then(|addr| addr.as_inet())
+        .map(|addr| addr.ip().to_string())
+        .unwrap_or_default()
+    })
   }
 
-  pub fn client_ip(&self) -> String {
-    self
-      .client_addr
-      .as_ref()
-      .and_then(|addr| addr.as_inet())
-      .map(|addr| addr.ip().to_string())
-      .unwrap_or_default()
+  pub fn query_pairs(&self) -> &[(String, String)] {
+    self.query_pairs.get_or_init(|| {
+      form_urlencoded::parse(self.req_header.uri.query().unwrap_or_default().as_bytes())
+        .map(|(key, value)| (key.into_owned(), value.into_owned()))
+        .collect()
+    })
   }
 
   pub fn request_time(&self) -> DateTime<FixedOffset> {
