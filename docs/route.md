@@ -49,13 +49,17 @@ server.stop()
 ## Load Balancer Notes
 
 When a route has more than one upstream and no `loadBalancer` is provided,
-`lonesome-js` currently defaults to `consistent_hash`. This default works for
-TCP and `virtual_js` upstreams, but it is **not suitable for multiple Unix
-socket upstreams**: Pingora's Ketama consistent-hash implementation only builds
-buckets for inet socket addresses and ignores UDS backends.
+`lonesome-js` currently defaults to `consistent_hash`. TCP upstreams use their
+actual network addresses. Unix socket and `virtual_js` upstreams use stable,
+internal synthetic IPv6 identities under RFC 3849's `2001:db8::/32`
+documentation range so that Pingora's Ketama selector can include them.
 
-If a route has multiple `kind: 'unix'` upstreams, explicitly configure
-`round_robin`:
+These synthetic addresses are never connected to; after selection,
+`lonesome-js` maps the backend back to the configured Unix path or virtual JS
+key. Reordering unchanged Unix or `virtual_js` upstreams during a route update
+therefore retains their consistent-hash identities.
+
+For example, multiple Unix socket upstreams can use consistent hashing:
 
 ```ts
 server.addOrUpdate({
@@ -66,11 +70,12 @@ server.addOrUpdate({
     { kind: 'unix', address: '/tmp/worker-a.sock' },
     { kind: 'unix', address: '/tmp/worker-b.sock' },
   ],
-  loadBalancer: { algorithm: 'round_robin' },
+  loadBalancer: {
+    algorithm: 'consistent_hash',
+    hashKeyRule: "HeaderValue('x-user')",
+  },
 })
 ```
-
-> See also Pingora source: pingora-load-balancing/src/selection/consistent.rs:42-46
 
 ## `addOrUpdate` Behavior
 

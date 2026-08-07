@@ -7,7 +7,7 @@ use crate::config::{
   LoadBalancerAlgorithm, LoadBalancerConfig, UpstreamAddressConfig, UpstreamConfig,
 };
 use crate::proxy::ctx::ProxyCtx;
-use crate::upstream::lb::{virtual_js_group_key, virtual_js_placeholder_addr};
+use crate::upstream::lb::synthetic_backend_addr;
 use crate::virtual_js::virtual_open_connection;
 
 use super::lb::{build_load_balancer, is_backend_healthy, DynLoadBalancer, EndpointIndex};
@@ -131,7 +131,7 @@ impl UpstreamPool {
         state.last_backend = None;
         state.last_endpoint_index = Some(0);
       }
-      return self.peer_from_endpoint(&self.endpoints[0], 0);
+      return self.peer_from_endpoint(&self.endpoints[0]);
     }
 
     let key = self.selection_key(proxy_ctx)?;
@@ -229,10 +229,10 @@ impl UpstreamPool {
       )
     })?;
 
-    self.peer_from_endpoint(endpoint, endpoint_idx.0)
+    self.peer_from_endpoint(endpoint)
   }
 
-  fn peer_from_endpoint(&self, endpoint: &UpstreamEndpoint, idx: usize) -> Result<Box<HttpPeer>> {
+  fn peer_from_endpoint(&self, endpoint: &UpstreamEndpoint) -> Result<Box<HttpPeer>> {
     match endpoint {
       UpstreamEndpoint::Tcp {
         address,
@@ -267,19 +267,18 @@ impl UpstreamPool {
         }
         Ok(Box::new(peer))
       }
-      UpstreamEndpoint::VirtualJs {
+      endpoint @ UpstreamEndpoint::VirtualJs {
         key, tls, h2c, sni, ..
       } => {
-        let dummy_addr = virtual_js_placeholder_addr(idx).map_err(|e| {
+        let dummy_addr = synthetic_backend_addr(endpoint).map_err(|e| {
           Error::because(
             ErrorType::InternalError,
-            "dummy addr for virtual_js creation failed",
+            "synthetic addr for virtual_js creation failed",
             std::io::Error::other(e),
           )
         })?;
-        let group_key = virtual_js_group_key(key.as_ref());
-        let peer = virtual_open_connection(key, &dummy_addr, group_key, *tls, *h2c, sni.clone())
-          .map_err(|e| {
+        let peer =
+          virtual_open_connection(key, &dummy_addr, *tls, *h2c, sni.clone()).map_err(|e| {
             Error::because(
               ErrorType::InternalError,
               "upstream selection failed",

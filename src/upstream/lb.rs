@@ -1,8 +1,9 @@
 use std::collections::BTreeSet;
 use std::hash::{BuildHasher, Hasher};
+use std::net::{Ipv6Addr, SocketAddr as StdSocketAddr, SocketAddrV6};
 use std::str::FromStr;
 use std::sync::atomic::{AtomicI64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use futures::executor::block_on;
 use hashbrown::DefaultHashBuilder;
@@ -113,29 +114,53 @@ impl DynLoadBalancer for ConsistentDynLb {
   }
 }
 
-// Synthetic placeholder used by virtual_js. We keep it index-based so each
-// backend remains distinct inside LB backend sets.
-pub fn virtual_js_placeholder_addr(idx: usize) -> Result<SocketAddr, String> {
-  const MAX_BACKENDS: usize = 254; // Support only 254 backends (host 1-254)
+/// Return a synthetic inet address for endpoints that do not have one.
+///
+/// Pingora's Ketama implementation only puts inet backends on the ring. Unix
+/// sockets and virtual JS endpoints therefore use an address under RFC 3849's
+/// documentation-only `2001:db8::/32` range as their stable ring identity.
+/// This address is never connected to: `EndpointIndex` maps the selected
+/// backend back to the actual endpoint.
+///
+/// The identity is deliberately based on endpoint configuration rather than
+/// its position in the route. Reordering unchanged upstreams during a route
+/// hot reload consequently preserves their Ketama identities.
+pub fn synthetic_backend_addr(endpoint: &UpstreamEndpoint) -> Result<SocketAddr, String> {
+  static SYNTHETIC_ADDRESS_HASHER: OnceLock<DefaultHashBuilder> = OnceLock::new();
+  let mut hasher = SYNTHETIC_ADDRESS_HASHER
+    .get_or_init(Default::default)
+    .build_hasher();
 
-  if idx >= MAX_BACKENDS {
-    return Err(format!(
-      "too many virtual upstreams: index {idx} exceeds maximum capacity {MAX_BACKENDS}"
-    ));
+  match endpoint {
+    UpstreamEndpoint::Unix { path, .. } => {
+      hasher.write(b"unix\0");
+      hasher.write(path.as_bytes());
+    }
+    UpstreamEndpoint::VirtualJs { key, .. } => {
+      hasher.write(b"virtual_js\0");
+      hasher.write(key.as_bytes());
+    }
+    UpstreamEndpoint::Tcp { address, .. } => {
+      return Err(format!(
+        "cannot generate a synthetic backend address for tcp upstream '{address}'"
+      ));
+    }
   }
 
-  // Use TEST-NET-1: 192.0.2.0/24 (RFC 5737 reserved documentation/testing range).
-  // Use the endpoint index to determine the host.
-  let host = idx as u8 + 1;
-  let placeholder = format!("192.0.2.{}:1", host);
-  SocketAddr::from_str(&placeholder)
-    .map_err(|e| format!("invalid virtual_js placeholder addr for idx {idx}: {e}"))
-}
+  // Cross-version/process stability is not part of this internal identity
+  // contract. The same endpoint configuration maps consistently while this
+  // server instance is alive, including across route-table hot reloads.
+  let digest = hasher.finish().to_be_bytes();
 
-pub fn virtual_js_group_key(path: &str) -> u64 {
-  let mut hasher = DefaultHashBuilder::default().build_hasher();
-  hasher.write(path.as_bytes());
-  hasher.finish()
+  let mut octets = [0_u8; 16];
+  octets[..4].copy_from_slice(&[0x20, 0x01, 0x0d, 0xb8]);
+  octets[8..].copy_from_slice(&digest);
+  Ok(SocketAddr::Inet(StdSocketAddr::V6(SocketAddrV6::new(
+    Ipv6Addr::from(octets),
+    1,
+    0,
+    0,
+  ))))
 }
 
 pub fn build_load_balancer(
@@ -161,14 +186,13 @@ pub fn build_load_balancer(
         }
       }
       #[cfg(unix)]
-      UpstreamEndpoint::Unix { path, weight, .. } => {
+      UpstreamEndpoint::Unix { weight, .. } => {
         let mut ext = Extensions::new();
         ext.insert(EndpointIndex(idx));
         ext.insert(PassiveHealthState::default());
 
         Backend {
-          addr: SocketAddr::from_str(&format!("unix:{path}"))
-            .map_err(|e| format!("invalid unix upstream path '{path}': {e}"))?,
+          addr: synthetic_backend_addr(upstream)?,
           weight: *weight as usize,
           ext,
         }
@@ -179,7 +203,7 @@ pub fn build_load_balancer(
         ext.insert(PassiveHealthState::default());
 
         Backend {
-          addr: virtual_js_placeholder_addr(idx)?,
+          addr: synthetic_backend_addr(upstream)?,
           weight: *weight as usize,
           ext,
         }
