@@ -14,6 +14,7 @@ use crate::proxy::ctx::ProxyCtx;
 use crate::server::tls_callbacks::DownstreamTlsInfo;
 
 use super::cel_common::parent_context;
+use super::precheck::Source;
 
 const CEL_HTTP_SESSION_KEY: &str = "_cel_http_session";
 
@@ -188,6 +189,39 @@ impl CelHttpSession {
           .map(|v| v.to_string())
       })
       .unwrap_or_default()
+  }
+
+  #[cfg(test)]
+  pub(crate) fn with_host_path(host: &str, path: &str) -> Self {
+    let host_once = OnceLock::new();
+    host_once.set(host.to_string()).expect("host unset");
+    let path_once = OnceLock::new();
+    path_once.set(path.to_string()).expect("path unset");
+    Self {
+      req_header: RequestHeader::build("GET", b"/", None).expect("build test request header"),
+      upstream_res_header: RwLock::new(None),
+      jwt_payload: RwLock::new(None),
+      client_addr: None,
+      tls_sni: None,
+      request_time: chrono::Utc::now().fixed_offset(),
+      host: host_once,
+      path: path_once,
+      client_ip: OnceLock::new(),
+      query_pairs: OnceLock::new(),
+    }
+  }
+}
+
+impl Source for CelHttpSession {
+  fn host(&self) -> &str {
+    // Inherent `CelHttpSession::host` wins over the trait method, so this is
+    // not recursive; values are cached in `OnceLock` and computed exactly the
+    // same way as inside CEL function calls.
+    self.host()
+  }
+
+  fn path(&self) -> &str {
+    self.path()
   }
 }
 

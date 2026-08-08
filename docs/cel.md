@@ -26,6 +26,15 @@ CEL is used in three main places:
 - If a matcher expression does not return a boolean, the route is treated as not matched.
 - Middleware `rule` expressions apply only when they evaluate to `true`.
 
+## Performance
+
+Route matcher rules that are pure boolean combinations of `Host`, `Path`, and
+`PathPrefix` (for example `Host("example.com") && PathPrefix("/api")`) take a
+semantics-preserving fast path: the cheap checks are evaluated first, and the
+full CEL program only runs when the cheap part cannot decide. This is purely
+internal — it does not change matching semantics or priority ordering. All
+other rules execute the full CEL program as usual.
+
 ## Built-in CEL Functions
 
 ### Standard utility functions
