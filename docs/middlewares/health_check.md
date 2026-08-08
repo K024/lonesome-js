@@ -47,3 +47,10 @@ Fields:
 - Only one `health_check` middleware may be active for a route request.
 - Successful upstream connection marks the selected backend healthy.
 - Failed upstream connection marks the selected backend unhealthy and may trigger retry behavior.
+- Once the middleware has observed traffic on a route, `status()` reports each
+  upstream's passive health (`upstreams[].health: { healthy, tolerance }`).
+  Upstreams that have not been observed (or routes without this middleware)
+  omit the `health` field.
+- On routes with a single upstream, health is observed but does not gate
+  selection (connection attempts still happen, so a recovering worker is picked
+  up immediately); on multi-upstream routes an unhealthy backend is skipped.

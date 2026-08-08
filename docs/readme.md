@@ -14,6 +14,8 @@ class LonesomeServer {
   addOrUpdate(route: RouteConfig): void
   remove(routeId: string): boolean
   status(): ServerStatus
+  updateCert(host: string, options: UpdateCertOptions): void
+  removeCert(host: string): boolean
 }
 ```
 
@@ -88,12 +90,45 @@ Return value:
 
 ### `status()`
 
-Returns runtime status summary.
+Returns a read-only snapshot of the running proxy: runtime configuration,
+registered routes and their upstreams, and (when the `health_check` middleware
+is active on a route) passive upstream health. It never measures traffic.
 
 ```ts
 const st = server.status()
-// { running: boolean, routeCount: number }
+// {
+//   running, routeCount, threads, workStealing,
+//   listeners: [{ kind, addr }],
+//   routes: [{ id, rule, priority, loadBalancer, upstreams: [{ kind, address, weight, health? }] }],
+// }
 ```
+
+See [tls.md](./tls.md) for dynamic TLS certificates and the cert-less listener.
+
+## TLS Certificates
+
+TLS certificates are managed in two layers:
+
+- **Static (acceptor)**: the TLS listener's `certPath`/`keyPath` from `start()`
+  are the lowest-priority default and are fixed for the process lifetime.
+- **Runtime (cert store)**: `updateCert()` registers certificates keyed by
+  hostname and takes effect on the next handshake, without restarting.
+
+```ts
+// exact host
+server.updateCert('api.example.com', { certPem, keyPem })
+// one-label wildcard (matches www.example.com, not a.b.example.com)
+server.updateCert('*.example.com', { certPem, keyPem })
+// global default (overrides the listener's static cert)
+server.updateCert('*', { certPem, keyPem })
+// skip the SAN/CN hostname match check
+server.updateCert('example.com', { certPem, keyPem, allowMismatch: true })
+server.removeCert('*.example.com')
+```
+
+A TLS listener may also be started **without** `certPath`/`keyPath`; in that case
+a global default must already have been set via `updateCert('*')`, otherwise
+`start()` throws. See [tls.md](./tls.md).
 
 ## Type References
 
@@ -107,13 +142,37 @@ interface StartupConfig {
 interface StartupListenerConfig {
   kind: 'tcp' | 'tls' | 'unix'
   addr: string
+  // TLS cert paths are optional: a cert-less TLS listener requires a global
+  // default set via updateCert('*') before start().
   certPath?: string
   keyPath?: string
+}
+
+interface UpdateCertOptions {
+  certPem: string
+  keyPem: string
+  // Skip the SAN/CN hostname match check (default false).
+  allowMismatch?: boolean
 }
 
 interface ServerStatus {
   running: boolean
   routeCount: number
+  threads: number
+  workStealing: boolean
+  listeners: Array<{ kind: string; addr: string }>
+  routes: Array<{
+    id: string
+    rule: string
+    priority: number
+    loadBalancer: { algorithm: string; maxIterations: number; hashKeyRule?: string }
+    upstreams: Array<{
+      kind: string
+      address: string
+      weight: number
+      health?: { healthy: boolean; tolerance: number }
+    }>
+  }>
 }
 ```
 
@@ -122,6 +181,7 @@ For complete route and upstream typing details, see the linked docs below.
 ## Related Documents
 
 - Route management and hot updates: [route.md](./route.md)
+- Dynamic TLS certificates: [tls.md](./tls.md)
 - CEL expressions and runtime evaluation: [cel.md](./cel.md)
 - In-process JS upstreams: [virtual_js.md](./virtual_js.md)
 - JavaScript request interceptors: [interceptor.md](./interceptor.md)

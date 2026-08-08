@@ -26,6 +26,7 @@ See [../cel.md](../cel.md) for available CEL functions and examples.
 
 ## Available middlewares
 
+- [access_log](./access_log.md)
 - [basic_auth](./basic_auth.md)
 - [cache](./cache.md)
 - [compression](./compression.md)

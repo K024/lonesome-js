@@ -21,6 +21,14 @@ This document covers route lifecycle and hot-update behavior.
     h2c?: boolean,
     sni?: string,
     weight?: number,
+    connectTimeoutMs?: number,
+    readTimeoutMs?: number,
+    writeTimeoutMs?: number,
+    idleTimeoutMs?: number,
+    verifyCert?: boolean,
+    clientCertPem?: string,
+    clientKeyPem?: string,
+    caCertPem?: string,
   }>,
   loadBalancer?: {
     algorithm?: 'round_robin' | 'rr' | 'consistent_hash' | 'consistent' | 'ch',
@@ -43,10 +51,31 @@ server.addOrUpdate(routeConfig)
 
 const removed = server.remove(routeId)
 
-const st = server.status() // { running, routeCount }
+const st = server.status() // { running, routeCount, threads, listeners, routes, ... }
 
 server.stop()
 ```
+
+## Upstream Options
+
+Per-upstream networking tunables:
+
+| field | meaning | default |
+|---|---|---|
+| `connectTimeoutMs` | TCP/TLS connect timeout in ms | no explicit timeout |
+| `readTimeoutMs` | timeout for reading from the upstream in ms | no explicit timeout |
+| `writeTimeoutMs` | timeout for writing to the upstream in ms | no explicit timeout |
+| `idleTimeoutMs` | idle timeout for pooled upstream connections in ms | no explicit timeout |
+| `verifyCert` | verify the upstream TLS certificate | `true` |
+| `clientCertPem` | PEM client certificate presented to the upstream (mTLS) | none |
+| `clientKeyPem` | PEM private key for `clientCertPem` | none |
+| `caCertPem` | PEM CA bundle used to verify the upstream certificate | system store |
+
+`clientCertPem` and `clientKeyPem` must be provided together. Set
+`verifyCert: false` when proxying to a self-signed or otherwise untrusted TLS
+upstream. Together with `clientCertPem`/`clientKeyPem` and `caCertPem`, this
+enables full mutual TLS against an upstream that verifies the presented client
+certificate.
 
 ## Load Balancer Notes
 
@@ -151,12 +180,28 @@ server.addOrUpdate({
 
 ## `status` Behavior
 
-`status()` returns:
+`status()` returns a read-only snapshot of runtime configuration and the
+registered route table:
 
 ```ts
 {
   running: boolean,
   routeCount: number,
+  threads: number,
+  workStealing: boolean,
+  listeners: Array<{ kind: string; addr: string }>,
+  routes: Array<{
+    id: string,
+    rule: string,
+    priority: number,
+    loadBalancer: { algorithm: string, maxIterations: number, hashKeyRule?: string },
+    upstreams: Array<{
+      kind: string,
+      address: string,
+      weight: number,
+      health?: { healthy: boolean, tolerance: number },
+    }>,
+  }>,
 }
 ```
 
@@ -164,6 +209,14 @@ Meaning:
 
 - `running`: whether the server is started.
 - `routeCount`: number of routes currently registered in memory.
+- `threads` / `workStealing`: the startup runtime configuration.
+- `listeners`: the configured listeners.
+- `routes`: each registered route with its resolved upstreams.
+- `upstreams[].health`: present only when the route is served by a
+  `health_check` middleware that has observed traffic; otherwise absent.
+
+`status()` never measures traffic; request counters and latency are the
+responsibility of the application layer.
 
 ## Practical Recommendations
 
