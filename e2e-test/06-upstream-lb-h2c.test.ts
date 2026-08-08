@@ -22,7 +22,11 @@ before(async () => {
 
 after(async () => {
   cleanups.forEach((fn) => fn())
-  server.stop()
+  try {
+    server?.stop()
+  } catch {
+    // ok: server may be undefined when before() failed
+  }
   await upstreamA.stop()
   await upstreamB.stop()
   await h2cUpstream.stop()
@@ -97,7 +101,9 @@ describe('upstream selection and protocols', () => {
     })
 
     it('different hash keys can route to different upstreams', async () => {
-      const keys = ['alice', 'bob', 'carol', 'dave', 'eric', 'frank', 'grace', 'hank']
+      // 24 keys across 2 backends: P(one backend never selected) ~= 2 * (1/2)^24,
+      // negligible. Fewer keys (e.g. 8) would flake ~0.8% of the time.
+      const keys = Array.from({ length: 24 }, (_, i) => `user-${i}`)
       const seen = new Set<string>()
       for (const key of keys) {
         const res = await proxyFetch(proxyPort, '/lb/hash/item', { headers: { 'x-user': key } })

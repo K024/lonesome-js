@@ -7,7 +7,7 @@ import { createDynamicUpstream } from './helpers/upstream.js'
 import { nextRouteId, tcpUpstream, withRoute } from './helpers/routes.js'
 import { requestRawHttps } from './helpers/request.js'
 import { pickFreePort, sleep } from './helpers/proxy.js'
-import { generateSelfSignedTlsCert } from './helpers/tls.js'
+import { generateSelfSignedTlsCert, hasOpenssl } from './helpers/tls.js'
 import { request as httpRequest } from 'node:http'
 
 let server: LonesomeServerType
@@ -17,41 +17,49 @@ let tlsCleanup: (() => void) | undefined
 const upstream = createDynamicUpstream()
 const cleanups: Array<() => void> = []
 
-before(async () => {
-  await upstream.start()
-  httpPort = await pickFreePort()
-  tlsPort = await pickFreePort()
+const skipWithoutOpenssl = {
+  skip: hasOpenssl() ? false : 'requires openssl CLI (not available on this host)',
+}
 
-  const cert = generateSelfSignedTlsCert('127.0.0.1')
-  tlsCleanup = cert.cleanup
+describe('middleware: redirect_https over tls listener', skipWithoutOpenssl, () => {
+  before(async () => {
+    await upstream.start()
+    httpPort = await pickFreePort()
+    tlsPort = await pickFreePort()
 
-  server = new LonesomeServer()
-  server.start({
-    listeners: [
-      {
-        kind: 'tcp',
-        addr: `127.0.0.1:${httpPort}`,
-      },
-      {
-        kind: 'tls',
-        addr: `127.0.0.1:${tlsPort}`,
-        certPath: cert.certPath,
-        keyPath: cert.keyPath,
-      },
-    ],
+    const cert = generateSelfSignedTlsCert('127.0.0.1')
+    tlsCleanup = cert.cleanup
+
+    server = new LonesomeServer()
+    server.start({
+      listeners: [
+        {
+          kind: 'tcp',
+          addr: `127.0.0.1:${httpPort}`,
+        },
+        {
+          kind: 'tls',
+          addr: `127.0.0.1:${tlsPort}`,
+          certPath: cert.certPath,
+          keyPath: cert.keyPath,
+        },
+      ],
+    })
+
+    await sleep(600)
   })
 
-  await sleep(600)
-})
+  after(async () => {
+    cleanups.forEach((fn) => fn())
+    try {
+      server?.stop()
+    } catch {
+      // ok: server may be undefined when before() failed
+    }
+    await upstream.stop()
+    tlsCleanup?.()
+  })
 
-after(async () => {
-  cleanups.forEach((fn) => fn())
-  server.stop()
-  await upstream.stop()
-  tlsCleanup?.()
-})
-
-describe('middleware: redirect_https over tls listener', () => {
   const insecureAgent = new https.Agent({ rejectUnauthorized: false })
 
   describe('to_http=false on tcp listener', () => {

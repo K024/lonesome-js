@@ -19,7 +19,11 @@ before(async () => {
 
 after(async () => {
   cleanups.forEach((fn) => fn())
-  server.stop()
+  try {
+    server?.stop()
+  } catch {
+    // ok: server may be undefined when before() failed
+  }
   await upstream.stop()
 })
 

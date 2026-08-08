@@ -22,12 +22,16 @@ export function createUnixDynamicUpstream() {
     },
     async start(): Promise<void> {
       rmSync(path, { force: true })
-      await new Promise<void>((resolve) => server.listen(path, resolve))
+      await new Promise<void>((resolve, reject) => {
+        server.once('error', reject)
+        server.listen(path, () => {
+          server.off('error', reject)
+          resolve()
+        })
+      })
     },
     async stop(): Promise<void> {
-      await new Promise<void>((resolve, reject) =>
-        server.close((err) => (err ? reject(err) : resolve()))
-      )
+      await new Promise<void>((resolve) => server.close(() => resolve()))
       rmSync(path, { force: true })
     },
   }

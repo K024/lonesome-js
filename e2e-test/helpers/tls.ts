@@ -10,16 +10,8 @@ export type GeneratedTlsCert = {
   cleanup: () => void
 }
 
-/**
- * Generate a short-lived self-signed certificate for local e2e tests.
- * Requires openssl to be installed on the host.
- */
-export function generateSelfSignedTlsCert(commonName = '127.0.0.1'): GeneratedTlsCert {
-  const dir = mkdtempSync(join(tmpdir(), 'lonesome-e2e-tls-'))
-  const certPath = join(dir, 'cert.pem')
-  const keyPath = join(dir, 'key.pem')
-
-  execFileSync('openssl', [
+function certArgs(keyPath: string, certPath: string, commonName: string): string[] {
+  return [
     'req',
     '-x509',
     '-newkey',
@@ -34,7 +26,43 @@ export function generateSelfSignedTlsCert(commonName = '127.0.0.1'): GeneratedTl
     certPath,
     '-subj',
     `/CN=${commonName}`,
-  ], { stdio: 'ignore' })
+  ]
+}
+
+let _hasOpenssl: boolean | undefined
+
+/**
+ * True when the `openssl` CLI is resolvable on PATH.
+ *
+ * This is a presence check only — it does not exercise openssl certificate
+ * operations. If a present openssl cannot run `req` (e.g. Strawberry portable
+ * builds ship a broken `OPENSSLDIR` with no config file), configure
+ * `OPENSSL_CONF` in the environment — the Strawberry install root's
+ * `portableshell.bat` now sets it to the bundled `openssl.cnf` — so the TLS
+ * tests can run; otherwise the TLS tests fail rather than silently skip.
+ */
+export function hasOpenssl(): boolean {
+  if (_hasOpenssl === undefined) {
+    try {
+      execFileSync('openssl', ['version'], { stdio: 'ignore' })
+      _hasOpenssl = true
+    } catch {
+      _hasOpenssl = false
+    }
+  }
+  return _hasOpenssl
+}
+
+/**
+ * Generate a short-lived self-signed certificate for local e2e tests.
+ * Requires a working openssl CLI on the host.
+ */
+export function generateSelfSignedTlsCert(commonName = '127.0.0.1'): GeneratedTlsCert {
+  const dir = mkdtempSync(join(tmpdir(), 'lonesome-e2e-tls-'))
+  const certPath = join(dir, 'cert.pem')
+  const keyPath = join(dir, 'key.pem')
+
+  execFileSync('openssl', certArgs(keyPath, certPath, commonName), { stdio: 'ignore' })
 
   return {
     certPath,

@@ -135,11 +135,7 @@ impl UpstreamPool {
       }
     });
 
-    let lb = if endpoints.len() > 1 {
-      build_load_balancer(&endpoints, &lb_cfg)?
-    } else {
-      None
-    };
+    let lb = build_load_balancer(&endpoints, &lb_cfg)?;
 
     let hash_key_program = lb_cfg
       .hash_key_rule
@@ -201,16 +197,36 @@ impl UpstreamPool {
   }
 
   pub fn select_peer(&self, proxy_ctx: &mut ProxyCtx, route_id: &str) -> Result<Box<HttpPeer>> {
-    if self.endpoints.len() == 1 {
-      if let Some(state) = proxy_ctx.upstream_state.as_mut() {
-        state.last_backend = None;
-        state.last_endpoint_index = Some(0);
-      }
-      return self.peer_from_endpoint(&self.endpoints[0]);
-    }
-
     let key = self.selection_key(proxy_ctx)?;
     let max_iterations = self.lb_cfg.max_iterations;
+
+    if self.endpoints.len() == 1 {
+      // Single endpoint: select unconditionally (no health gating) so a cooling
+      // down worker still receives connection attempts and recovers immediately.
+      // Health is still recorded via `last_backend` so `status()` can report it,
+      // and connect-phase retries (health_check middleware) keep working.
+      let Some(lb) = &self.lb else {
+        return Err(Error::because(
+          ErrorType::InternalError,
+          "upstream selection failed",
+          std::io::Error::other(format!("route '{route_id}' has no load balancer")),
+        ));
+      };
+      let backend = lb
+        .select_backend(&key, max_iterations)
+        .ok_or_else(|| {
+          Error::because(
+            ErrorType::HTTPStatus(502),
+            "upstream selection failed",
+            std::io::Error::other(format!("route '{route_id}' failed to select an upstream backend")),
+          )
+        })?;
+      if let Some(state) = proxy_ctx.upstream_state.as_mut() {
+        state.last_endpoint_index = backend.ext.get::<EndpointIndex>().map(|idx| idx.0);
+        state.last_backend = Some(backend.clone());
+      }
+      return self.peer_from_backend(&backend);
+    }
 
     // only if upstream_state is set, check if the backend is healthy
     if let Some(state) = proxy_ctx.upstream_state.as_mut() {

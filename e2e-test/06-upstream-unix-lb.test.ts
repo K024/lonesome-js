@@ -1,18 +1,22 @@
-import { describe, it, before, after } from "node:test";
-import assert from "node:assert/strict";
-import { startProxy } from "./helpers/proxy.js";
-import { createUnixDynamicUpstream } from "./helpers/unix-upstream.js";
-import { nextRouteId, withRoute } from "./helpers/routes.js";
-import { proxyFetch } from "./helpers/request.js";
-import type { LonesomeServer, UpstreamConfig } from "../dist/index.js";
+import { describe, it, before, after } from 'node:test'
+import assert from 'node:assert/strict'
+import { startProxy } from './helpers/proxy.js'
+import { createUnixDynamicUpstream } from './helpers/unix-upstream.js'
+import { nextRouteId, withRoute } from './helpers/routes.js'
+import { proxyFetch } from './helpers/request.js'
+import type { LonesomeServer, UpstreamConfig } from '../dist/index.js'
 
-let server: LonesomeServer;
-let proxyPort: number;
-const upstreamA = createUnixDynamicUpstream();
-const upstreamB = createUnixDynamicUpstream();
-let cleanupRoundRobin: () => void
-let cleanupConsistentHash: () => void
+let server: LonesomeServer
+let proxyPort: number
+const upstreamA = createUnixDynamicUpstream()
+const upstreamB = createUnixDynamicUpstream()
+let cleanupRoundRobin: (() => void) | undefined
+let cleanupConsistentHash: (() => void) | undefined
 const consistentRouteId = nextRouteId('unix-lb-consistent')
+
+const skipOnWindows = {
+  skip: process.platform === 'win32' ? 'unix socket upstreams not supported on Windows' : false,
+}
 
 function unixUpstreams(): UpstreamConfig[] {
   return [upstreamA.path, upstreamB.path].map((path) => ({
@@ -24,50 +28,62 @@ function unixUpstreams(): UpstreamConfig[] {
   }))
 }
 
-before(async () => {
-  await upstreamA.start();
-  await upstreamB.start();
-  ({ server, port: proxyPort } = await startProxy());
+describe('unix upstream load balancing', skipOnWindows, () => {
+  before(async () => {
+    await upstreamA.start()
+    await upstreamB.start()
+    ;({ server, port: proxyPort } = await startProxy())
 
-  upstreamA.setHandler((_req, res) => {
-    res.setHeader('x-from', 'a')
-    res.end('a')
+    upstreamA.setHandler((_req, res) => {
+      res.setHeader('x-from', 'a')
+      res.end('a')
+    })
+    upstreamB.setHandler((_req, res) => {
+      res.setHeader('x-from', 'b')
+      res.end('b')
+    })
+
+    cleanupRoundRobin = withRoute(server, {
+      id: nextRouteId('unix-lb'),
+      matcher: { rule: "PathPrefix('/unix-lb')", priority: 10 },
+      middlewares: [],
+      upstreams: unixUpstreams(),
+      loadBalancer: { algorithm: 'round_robin' },
+    })
+
+    cleanupConsistentHash = withRoute(server, {
+      id: consistentRouteId,
+      matcher: { rule: "PathPrefix('/unix-consistent')", priority: 10 },
+      middlewares: [],
+      upstreams: unixUpstreams(),
+      loadBalancer: {
+        algorithm: 'consistent_hash',
+        maxIterations: 32,
+        hashKeyRule: "HeaderValue('x-user')",
+      },
+    })
   })
-  upstreamB.setHandler((_req, res) => {
-    res.setHeader('x-from', 'b')
-    res.end('b')
+
+  after(async () => {
+    try {
+      cleanupRoundRobin?.()
+    } catch {
+      // ok: cleanup may be undefined when before() failed
+    }
+    try {
+      cleanupConsistentHash?.()
+    } catch {
+      // ok: cleanup may be undefined when before() failed
+    }
+    try {
+      server?.stop()
+    } catch {
+      // ok: server may be undefined when before() failed
+    }
+    await upstreamA.stop()
+    await upstreamB.stop()
   })
 
-  cleanupRoundRobin = withRoute(server, {
-    id: nextRouteId("unix-lb"),
-    matcher: { rule: "PathPrefix('/unix-lb')", priority: 10 },
-    middlewares: [],
-    upstreams: unixUpstreams(),
-    loadBalancer: { algorithm: "round_robin" },
-  });
-
-  cleanupConsistentHash = withRoute(server, {
-    id: consistentRouteId,
-    matcher: { rule: "PathPrefix('/unix-consistent')", priority: 10 },
-    middlewares: [],
-    upstreams: unixUpstreams(),
-    loadBalancer: {
-      algorithm: 'consistent_hash',
-      maxIterations: 32,
-      hashKeyRule: "HeaderValue('x-user')",
-    },
-  });
-});
-
-after(async () => {
-  cleanupRoundRobin();
-  cleanupConsistentHash();
-  server.stop();
-  await upstreamA.stop();
-  await upstreamB.stop();
-});
-
-describe("unix upstream load balancing", () => {
   it('routes the same hash key consistently across Unix socket upstreams', async () => {
     const seen = new Set<string>()
     for (let i = 0; i < 8; i++) {
@@ -119,13 +135,13 @@ describe("unix upstream load balancing", () => {
         `hash key '${key}' changed owner after a reorder-only route reload`,
       )
     }
-  });
+  })
 
-  it("proxies to one of multiple Unix socket upstreams with explicit round_robin", async () => {
-    const res = await proxyFetch(proxyPort, "/unix-lb/hello?x=1")
+  it('proxies to one of multiple Unix socket upstreams with explicit round_robin', async () => {
+    const res = await proxyFetch(proxyPort, '/unix-lb/hello?x=1')
     await res.text()
 
-    assert.strictEqual(res.status, 200);
-    assert.strictEqual(['a', 'b'].includes(res.headers.get('x-from') ?? ''), true);
-  });
-});
+    assert.strictEqual(res.status, 200)
+    assert.strictEqual(['a', 'b'].includes(res.headers.get('x-from') ?? ''), true)
+  })
+})

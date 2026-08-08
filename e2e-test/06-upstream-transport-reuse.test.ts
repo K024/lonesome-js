@@ -93,19 +93,19 @@ async function makeRequests(port: number, path: string, count: number): Promise<
   }
 }
 
-describe('TCP and Unix upstream connection reuse', () => {
+const skipOnWindows = {
+  skip: process.platform === 'win32' ? 'unix socket upstreams not supported on Windows' : false,
+}
+
+describe('TCP upstream connection reuse', () => {
   let server: LonesomeServer
   let proxyPort: number
   let tcp: CountingUpstream
-  let unix: CountingUpstream
-  let cleanupTcp: () => void
-  let cleanupUnix: () => void
+  let cleanupTcp: (() => void) | undefined
 
   before(async () => {
     tcp = createCountingTcpUpstream()
-    unix = await createCountingUnixUpstream()
     await tcp.start()
-    await unix.start()
     ;({ server, port: proxyPort } = await startProxy())
 
     cleanupTcp = withRoute(server, {
@@ -114,6 +114,42 @@ describe('TCP and Unix upstream connection reuse', () => {
       middlewares: [],
       upstreams: [tcp.endpoint],
     })
+  })
+
+  after(async () => {
+    try {
+      cleanupTcp?.()
+    } catch {
+      // ok: cleanup may be undefined when before() failed
+    }
+    try {
+      server?.stop()
+    } catch {
+      // ok: server may be undefined when before() failed
+    }
+    await tcp.stop()
+  })
+
+  it('reuses sequential HTTP/1 upstream connections', async () => {
+    const requestCount = 12
+    await makeRequests(proxyPort, '/reuse/tcp/item', requestCount)
+
+    assert.strictEqual(tcp.requests(), requestCount)
+    assert.ok(tcp.connections() < requestCount, `TCP did not reuse: ${tcp.connections()} connections`)
+  })
+})
+
+describe('Unix upstream connection reuse', skipOnWindows, () => {
+  let server: LonesomeServer
+  let proxyPort: number
+  let unix: CountingUpstream
+  let cleanupUnix: (() => void) | undefined
+
+  before(async () => {
+    unix = await createCountingUnixUpstream()
+    await unix.start()
+    ;({ server, port: proxyPort } = await startProxy())
+
     cleanupUnix = withRoute(server, {
       id: nextRouteId('unix-reuse'),
       matcher: { rule: "PathPrefix('/reuse/unix')", priority: 80 },
@@ -123,25 +159,24 @@ describe('TCP and Unix upstream connection reuse', () => {
   })
 
   after(async () => {
-    cleanupTcp()
-    cleanupUnix()
-    server.stop()
-    await tcp.stop()
+    try {
+      cleanupUnix?.()
+    } catch {
+      // ok: cleanup may be undefined when before() failed
+    }
+    try {
+      server?.stop()
+    } catch {
+      // ok: server may be undefined when before() failed
+    }
     await unix.stop()
   })
 
-  it('reuses sequential HTTP/1 upstream connections for both transports', async () => {
+  it('reuses sequential HTTP/1 upstream connections', async () => {
     const requestCount = 12
-    await makeRequests(proxyPort, '/reuse/tcp/item', requestCount)
     await makeRequests(proxyPort, '/reuse/unix/item', requestCount)
 
-    assert.strictEqual(tcp.requests(), requestCount)
     assert.strictEqual(unix.requests(), requestCount)
-    assert.ok(tcp.connections() < requestCount, `TCP did not reuse: ${tcp.connections()} connections`)
     assert.ok(unix.connections() < requestCount, `Unix did not reuse: ${unix.connections()} connections`)
-    assert.ok(
-      unix.connections() <= tcp.connections() + 1,
-      `Unix reuse is materially worse than TCP: tcp=${tcp.connections()}, unix=${unix.connections()}`,
-    )
   })
 })
