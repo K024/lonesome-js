@@ -2,13 +2,13 @@ use std::collections::BTreeSet;
 use std::hash::{BuildHasher, Hasher};
 use std::net::{Ipv6Addr, SocketAddr as StdSocketAddr, SocketAddrV6};
 use std::str::FromStr;
-use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::{Arc, OnceLock};
 
 use futures::executor::block_on;
 use hashbrown::DefaultHashBuilder;
 use pingora::lb::discovery;
-use pingora::lb::selection::{Consistent, RoundRobin};
+use pingora::lb::selection::{BackendIter, BackendSelection, Consistent, RoundRobin};
 use pingora::lb::{Backend, Backends, Extensions, LoadBalancer};
 use pingora::protocols::l4::socket::SocketAddr;
 
@@ -20,8 +20,9 @@ pub struct EndpointIndex(pub usize);
 
 #[derive(Debug)]
 pub struct PassiveHealthStateInner {
-  pub tolerance: AtomicI64,
-  pub next_window: AtomicI64,
+  tolerance: AtomicI64,
+  next_window: AtomicI64,
+  tracked: AtomicBool,
 }
 
 #[derive(Clone, Default, Debug)]
@@ -32,6 +33,7 @@ impl Default for PassiveHealthStateInner {
     Self {
       tolerance: AtomicI64::new(0),
       next_window: AtomicI64::new(0),
+      tracked: AtomicBool::new(false),
     }
   }
 }
@@ -55,6 +57,18 @@ impl PassiveHealthState {
     }
     false
   }
+
+  pub fn tolerance(&self) -> i64 {
+    self.0.tolerance.load(Ordering::Relaxed)
+  }
+
+  pub fn mark_tracked(&self) {
+    self.0.tracked.store(true, Ordering::Relaxed);
+  }
+
+  pub fn tracked(&self) -> bool {
+    self.0.tracked.load(Ordering::Relaxed)
+  }
 }
 
 pub trait DynLoadBalancer: Send + Sync {
@@ -66,6 +80,28 @@ pub trait DynLoadBalancer: Send + Sync {
     max_iterations: usize,
     accept: &dyn Fn(&Backend, bool) -> bool,
   ) -> Option<Backend>;
+
+  fn upstream_health(&self, now: i64) -> Vec<(usize, Option<(bool, i64)>)>;
+}
+
+fn collect_upstream_health<S>(lb: &LoadBalancer<S>, now: i64) -> Vec<(usize, Option<(bool, i64)>)>
+where
+  S: BackendSelection + Send + Sync + 'static,
+  S::Iter: BackendIter,
+{
+  let mut out = Vec::new();
+  for backend in lb.backends().get_backend().iter() {
+    let Some(idx) = backend.ext.get::<EndpointIndex>() else {
+      continue;
+    };
+    let state = backend.ext.get::<PassiveHealthState>();
+    let health = state.and_then(|s| {
+      s.tracked()
+        .then(|| (is_backend_healthy(backend, now), s.tolerance()))
+    });
+    out.push((idx.0, health));
+  }
+  out
 }
 
 struct RoundRobinDynLb {
@@ -88,6 +124,10 @@ impl DynLoadBalancer for RoundRobinDynLb {
       .select_with(key, max_iterations, |backend, healthy| {
         accept(backend, healthy)
       })
+  }
+
+  fn upstream_health(&self, now: i64) -> Vec<(usize, Option<(bool, i64)>)> {
+    collect_upstream_health(&self.inner, now)
   }
 }
 
@@ -112,6 +152,10 @@ impl DynLoadBalancer for ConsistentDynLb {
         accept(backend, healthy)
       })
   }
+
+  fn upstream_health(&self, now: i64) -> Vec<(usize, Option<(bool, i64)>)> {
+    collect_upstream_health(&self.inner, now)
+  }
 }
 
 /// Return a synthetic inet address for endpoints that do not have one.
@@ -132,6 +176,7 @@ pub fn synthetic_backend_addr(endpoint: &UpstreamEndpoint) -> Result<SocketAddr,
     .build_hasher();
 
   match endpoint {
+    #[cfg(unix)]
     UpstreamEndpoint::Unix { path, .. } => {
       hasher.write(b"unix\0");
       hasher.write(path.as_bytes());
@@ -250,6 +295,7 @@ pub fn observe_backend_health(
   let Some(state) = backend.ext.get::<PassiveHealthState>() else {
     return;
   };
+  state.mark_tracked();
   if success {
     state.observe_success(max_attempts);
   } else {

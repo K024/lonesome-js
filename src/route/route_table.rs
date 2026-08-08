@@ -49,6 +49,10 @@ impl RouteTable {
   pub fn route_count(&self) -> usize {
     self.routes.len()
   }
+
+  pub fn routes(&self) -> std::slice::Iter<'_, Arc<Route>> {
+    self.routes.iter()
+  }
 }
 
 #[derive(Clone, Default)]

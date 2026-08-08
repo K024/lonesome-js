@@ -1,7 +1,7 @@
 use pingora::upstreams::peer::HttpPeer;
 use pingora::Result;
 
-use crate::config::RouteConfig;
+use crate::config::{LoadBalancerStatus, RouteConfig, UpstreamStatus};
 use crate::matcher::Matcher;
 use crate::middlewares::registry::build_middleware;
 use crate::middlewares::Middleware;
@@ -49,5 +49,17 @@ impl Route {
 
   pub fn select_upstream_peer(&self, proxy_ctx: &mut ProxyCtx) -> Result<Box<HttpPeer>> {
     self.upstream_pool.select_peer(proxy_ctx, &self.id)
+  }
+
+  pub fn rule(&self) -> &str {
+    self.matcher.source()
+  }
+
+  pub fn load_balancer_status(&self) -> LoadBalancerStatus {
+    self.upstream_pool.load_balancer_status()
+  }
+
+  pub fn upstream_status(&self) -> Vec<UpstreamStatus> {
+    self.upstream_pool.status()
   }
 }

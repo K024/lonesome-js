@@ -47,7 +47,7 @@
     "bench": "tsx bench/index.ts run",
     "version": "napi version",
     "lint": "tsc -b --noEmit",
-    "test": "npm run prepare:rust-patches && tsx --test 'e2e-test/**/*.test.ts'"
+    "test": "tsx --test 'e2e-test/**/*.test.ts'"
   },
   "devDependencies": {
     "@napi-rs/cli": "^3.8.2",

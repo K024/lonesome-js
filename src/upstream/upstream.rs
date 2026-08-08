@@ -1,10 +1,13 @@
+use std::collections::HashMap;
+
 use cel::{Program, Value};
 use pingora::lb::Backend;
 use pingora::upstreams::peer::HttpPeer;
 use pingora::{Error, ErrorType, Result};
 
 use crate::config::{
-  LoadBalancerAlgorithm, LoadBalancerConfig, UpstreamAddressConfig, UpstreamConfig,
+  LoadBalancerAlgorithm, LoadBalancerConfig, LoadBalancerStatus, UpstreamAddressConfig,
+  UpstreamConfig, UpstreamHealthStatus, UpstreamStatus,
 };
 use crate::proxy::ctx::ProxyCtx;
 use crate::upstream::lb::synthetic_backend_addr;
@@ -43,6 +46,35 @@ pub enum UpstreamEndpoint {
     sni: String,
     weight: u32,
   },
+}
+
+impl UpstreamEndpoint {
+  pub fn kind(&self) -> &'static str {
+    match self {
+      UpstreamEndpoint::Tcp { .. } => "tcp",
+      #[cfg(unix)]
+      UpstreamEndpoint::Unix { .. } => "unix",
+      UpstreamEndpoint::VirtualJs { .. } => "virtual_js",
+    }
+  }
+
+  pub fn address(&self) -> String {
+    match self {
+      UpstreamEndpoint::Tcp { address, .. } => address.clone(),
+      #[cfg(unix)]
+      UpstreamEndpoint::Unix { path, .. } => path.clone(),
+      UpstreamEndpoint::VirtualJs { key, .. } => key.clone(),
+    }
+  }
+
+  pub fn weight(&self) -> u32 {
+    match self {
+      UpstreamEndpoint::Tcp { weight, .. } => *weight,
+      #[cfg(unix)]
+      UpstreamEndpoint::Unix { weight, .. } => *weight,
+      UpstreamEndpoint::VirtualJs { weight, .. } => *weight,
+    }
+  }
 }
 
 pub struct UpstreamPool {
@@ -123,6 +155,49 @@ impl UpstreamPool {
       lb_cfg,
       hash_key_program,
     })
+  }
+
+  pub fn load_balancer_status(&self) -> LoadBalancerStatus {
+    let algorithm = match self.lb_cfg.algorithm {
+      LoadBalancerAlgorithm::RoundRobin => "round_robin",
+      LoadBalancerAlgorithm::ConsistentHash => "consistent_hash",
+    };
+    LoadBalancerStatus {
+      algorithm: algorithm.to_string(),
+      max_iterations: self.lb_cfg.max_iterations,
+      hash_key_rule: self.lb_cfg.hash_key_rule.clone(),
+    }
+  }
+
+  pub fn status(&self) -> Vec<UpstreamStatus> {
+    let now = chrono::Utc::now().timestamp_millis();
+    let health_map: HashMap<usize, (bool, i64)> = self
+      .lb
+      .as_ref()
+      .map(|lb| {
+        lb.upstream_health(now)
+          .into_iter()
+          .filter_map(|(idx, health)| health.map(|h| (idx, h)))
+          .collect()
+      })
+      .unwrap_or_default();
+
+    self
+      .endpoints
+      .iter()
+      .enumerate()
+      .map(|(idx, endpoint)| UpstreamStatus {
+        kind: endpoint.kind().to_string(),
+        address: endpoint.address(),
+        weight: endpoint.weight(),
+        health: health_map
+          .get(&idx)
+          .map(|(healthy, tolerance)| UpstreamHealthStatus {
+            healthy: *healthy,
+            tolerance: *tolerance,
+          }),
+      })
+      .collect()
   }
 
   pub fn select_peer(&self, proxy_ctx: &mut ProxyCtx, route_id: &str) -> Result<Box<HttpPeer>> {

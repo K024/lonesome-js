@@ -164,6 +164,110 @@ index 1f8cce0..a5e998f 100644
              Err(e) => {
                  error!("Idle unix connection is broken: {e:?}");
                  false
+diff --git a/src/server/mod.rs b/src/server/mod.rs
+index 406c0d0..2e7b58f 100644
+--- a/src/server/mod.rs
++++ b/src/server/mod.rs
+@@ -170,24 +170,44 @@ impl ShutdownSignalWatch for UnixShutdownSignalWatch {
+     }
+ }
+ 
++/// A Windows shutdown watcher that never resolves on its own.
++///
++/// Windows has no OS-level delivery for `SIGTERM`; the server main loop also
++/// listens for `Ctrl+C`, so the default watcher simply waits forever and lets
++/// `main_loop`'s `ctrl_c()` arm drive shutdown. Callers that need a
++/// programmatic shutdown pass a custom [ShutdownSignalWatch] via [RunArgs].
++#[cfg(windows)]
++pub struct WindowsShutdownSignalWatch;
++
++#[cfg(windows)]
++#[async_trait]
++impl ShutdownSignalWatch for WindowsShutdownSignalWatch {
++    async fn recv(&self) -> ShutdownSignal {
++        std::future::pending().await
++    }
++}
++
+ /// Arguments to configure running of the pingora server.
+ pub struct RunArgs {
+     /// Signal for initating shutdown
+-    #[cfg(unix)]
+     pub shutdown_signal: Box<dyn ShutdownSignalWatch>,
+ }
+ 
++#[cfg(unix)]
+ impl Default for RunArgs {
+-    #[cfg(unix)]
+     fn default() -> Self {
+         Self {
+             shutdown_signal: Box::new(UnixShutdownSignalWatch),
+         }
+     }
++}
+ 
+-    #[cfg(windows)]
++#[cfg(windows)]
++impl Default for RunArgs {
+     fn default() -> Self {
+-        Self {}
++        Self {
++            shutdown_signal: Box::new(WindowsShutdownSignalWatch),
++        }
+     }
+ }
+ 
+@@ -318,16 +338,35 @@ impl Server {
+     }
+ 
+     #[cfg(windows)]
+-    async fn main_loop(&self, _run_args: RunArgs) -> ShutdownType {
++    async fn main_loop(&self, run_args: RunArgs) -> ShutdownType {
+         // waiting for exit signal
+ 
+         self.execution_phase_watch
+             .send(ExecutionPhase::Running)
+             .ok();
+ 
+-        match tokio::signal::ctrl_c().await {
+-            Ok(()) => {
+-                info!("Ctrl+C received, gracefully exiting");
++        let signal = tokio::select! {
++            result = tokio::signal::ctrl_c() => {
++                match result {
++                    Ok(()) => {
++                        info!("Ctrl+C received, gracefully exiting");
++                        ShutdownSignal::GracefulTerminate
++                    }
++                    Err(e) => {
++                        error!("Unable to listen for shutdown signal: {e}");
++                        return ShutdownType::Quick;
++                    }
++                }
++            }
++            signal = run_args.shutdown_signal.recv() => signal,
++        };
++
++        match signal {
++            ShutdownSignal::FastShutdown => {
++                info!("Fast shutdown received, exiting");
++                ShutdownType::Quick
++            }
++            ShutdownSignal::GracefulTerminate | ShutdownSignal::GracefulUpgrade => {
+                 // graceful shutdown if there are listening sockets
+                 info!("Broadcasting graceful shutdown");
+                 match self.shutdown_watch.send(true) {
+@@ -346,10 +385,6 @@ impl Server {
+ 
+                 ShutdownType::Graceful
+             }
+-            Err(e) => {
+-                error!("Unable to listen for shutdown signal: {}", e);
+-                ShutdownType::Quick
+-            }
+         }
+     }
+ 
 diff --git a/src/upstreams/peer.rs b/src/upstreams/peer.rs
 index c9ae0a6..49cf9f7 100644
 --- a/src/upstreams/peer.rs

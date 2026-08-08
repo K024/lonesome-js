@@ -15,6 +15,7 @@ use crate::route::SharedRouteTable;
 use crate::server::tls_callbacks::DownstreamTlsCallbacks;
 
 pub struct LonesomeRuntime {
+  startup: StartupConfig,
   shutdown_tx: Option<mpsc::Sender<ShutdownSignal>>,
   handle: Option<JoinHandle<()>>,
 }
@@ -25,14 +26,15 @@ impl LonesomeRuntime {
 
     let (shutdown_tx, shutdown_rx) = mpsc::channel::<ShutdownSignal>();
 
+    let startup_for_thread = startup.clone();
     let handle = thread::Builder::new()
       .name("lonesome-pingora".to_string())
       .spawn(move || {
         let mut conf = ServerConf::new().expect("default pingora conf");
-        if let Some(threads) = startup.threads {
+        if let Some(threads) = startup_for_thread.threads {
           conf.threads = threads;
         }
-        if let Some(work_stealing) = startup.work_stealing {
+        if let Some(work_stealing) = startup_for_thread.work_stealing {
           conf.work_stealing = work_stealing;
         }
         conf.grace_period_seconds = Some(0);
@@ -43,7 +45,7 @@ impl LonesomeRuntime {
 
         let mut service = http_proxy_service(&server.configuration, LonesomeProxy::new(routes));
 
-        for listener in startup.listeners {
+        for listener in startup_for_thread.listeners {
           match listener {
             StartupListenerConfig::Tcp { addr } => service.add_tcp(&addr),
             StartupListenerConfig::Tls {
@@ -73,7 +75,6 @@ impl LonesomeRuntime {
         server.add_service(service);
 
         let run_args = RunArgs {
-          #[cfg(unix)]
           shutdown_signal: Box::new(ChannelShutdownSignalWatch::new(shutdown_rx)),
         };
 
@@ -84,10 +85,10 @@ impl LonesomeRuntime {
     Ok(Self {
       shutdown_tx: Some(shutdown_tx),
       handle: Some(handle),
+      startup,
     })
   }
 
-  #[cfg(unix)]
   pub fn stop(&mut self) -> Result<(), String> {
     if let Some(tx) = self.shutdown_tx.take() {
       tx.send(ShutdownSignal::GracefulTerminate)
@@ -103,16 +104,12 @@ impl LonesomeRuntime {
     Ok(())
   }
 
-  #[cfg(windows)]
-  pub fn stop(&mut self) -> Result<(), String> {
-    Err(
-        "stop is not supported on Windows with current pingora API; pingora only listens for Ctrl+C on Windows"
-          .to_string(),
-      )
-  }
-
   pub fn is_running(&self) -> bool {
     self.handle.is_some()
+  }
+
+  pub fn startup(&self) -> &StartupConfig {
+    &self.startup
   }
 }
 

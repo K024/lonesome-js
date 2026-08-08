@@ -7,7 +7,10 @@ use crate::bindings::route_config::RouteConfig;
 use crate::bindings::startup_config::StartupConfig;
 use crate::bindings::status::ServerStatus;
 use crate::bindings::{error::mutex_poisoned, error::to_napi_error};
-use crate::config::RouteConfig as CoreRouteConfig;
+use crate::config::{
+  ListenerStatus, RouteConfig as CoreRouteConfig, RouteStatus as CoreRouteStatus,
+  ServerStatus as CoreServerStatus, StartupListenerConfig,
+};
 use crate::route::{Route, SharedRouteTable};
 use crate::server::LonesomeRuntime;
 
@@ -81,9 +84,66 @@ impl LonesomeServer {
   #[napi]
   pub fn status(&self) -> Result<ServerStatus> {
     let guard = self.runtime.lock().map_err(|_| mutex_poisoned("runtime"))?;
-    Ok(ServerStatus {
-      running: guard.as_ref().is_some_and(LonesomeRuntime::is_running),
-      route_count: self.routes.route_count() as u32,
-    })
+    let running = guard.as_ref().is_some_and(LonesomeRuntime::is_running);
+    let route_count = self.routes.route_count() as u32;
+
+    let (threads, work_stealing, listeners) = match guard.as_ref() {
+      Some(rt) => {
+        let startup = rt.startup();
+        let listeners = startup
+          .listeners
+          .iter()
+          .map(listener_status)
+          .collect::<Vec<_>>();
+        (
+          startup.threads.unwrap_or(0) as u32,
+          startup.work_stealing.unwrap_or(false),
+          listeners,
+        )
+      }
+      None => (0, false, Vec::new()),
+    };
+
+    let routes = self
+      .routes
+      .read_snapshot()
+      .routes()
+      .map(|route| CoreRouteStatus {
+        id: route.id.clone(),
+        rule: route.rule().to_string(),
+        priority: route.priority,
+        load_balancer: route.load_balancer_status(),
+        upstreams: route.upstream_status(),
+      })
+      .collect::<Vec<_>>();
+
+    let core = CoreServerStatus {
+      running,
+      route_count: route_count as usize,
+      threads: threads as usize,
+      work_stealing,
+      listeners,
+      routes,
+    };
+
+    Ok(ServerStatus::from(core))
+  }
+}
+
+fn listener_status(listener: &StartupListenerConfig) -> ListenerStatus {
+  match listener {
+    StartupListenerConfig::Tcp { addr } => ListenerStatus {
+      kind: "tcp".to_string(),
+      addr: addr.clone(),
+    },
+    StartupListenerConfig::Tls { addr, .. } => ListenerStatus {
+      kind: "tls".to_string(),
+      addr: addr.clone(),
+    },
+    #[cfg(unix)]
+    StartupListenerConfig::Unix { path } => ListenerStatus {
+      kind: "unix".to_string(),
+      addr: path.clone(),
+    },
   }
 }
