@@ -23,6 +23,14 @@ pub struct UpstreamConfig {
   pub h2_c: Option<bool>,
   pub sni: Option<String>,
   pub weight: Option<u32>,
+  pub connect_timeout_ms: Option<u32>,
+  pub read_timeout_ms: Option<u32>,
+  pub write_timeout_ms: Option<u32>,
+  pub idle_timeout_ms: Option<u32>,
+  pub verify_cert: Option<bool>,
+  pub client_cert_pem: Option<String>,
+  pub client_key_pem: Option<String>,
+  pub ca_cert_pem: Option<String>,
 }
 
 impl TryFrom<LoadBalancerConfig> for CoreLoadBalancerConfig {
@@ -61,6 +69,14 @@ impl TryFrom<UpstreamConfig> for CoreUpstreamConfig {
       h2c: value.h2_c,
       sni: value.sni,
       weight: value.weight.unwrap_or(1),
+      connect_timeout_ms: value.connect_timeout_ms.map(|v| v as u64),
+      read_timeout_ms: value.read_timeout_ms.map(|v| v as u64),
+      write_timeout_ms: value.write_timeout_ms.map(|v| v as u64),
+      idle_timeout_ms: value.idle_timeout_ms.map(|v| v as u64),
+      verify_cert: value.verify_cert,
+      client_cert_pem: value.client_cert_pem,
+      client_key_pem: value.client_key_pem,
+      ca_cert_pem: value.ca_cert_pem,
     })
   }
 }

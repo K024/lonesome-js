@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Instant;
 
 use pingora::lb::Extensions;
 
@@ -14,6 +15,8 @@ pub struct ProxyCtx {
   pub cache_handler: Option<Arc<dyn ProxyCacheHandler>>,
   pub upstream_state: Option<UpstreamState>,
   pub extensions: Extensions,
+  /// Set by the access_log middleware at request start; used to compute latency.
+  pub access_log_start: Option<Instant>,
 }
 
 impl ProxyCtx {
@@ -25,6 +28,7 @@ impl ProxyCtx {
       cache_handler: None,
       upstream_state: None,
       extensions: Extensions::new(),
+      access_log_start: None,
     }
   }
 
@@ -35,6 +39,7 @@ impl ProxyCtx {
     self.cache_handler = None;
     self.upstream_state = None;
     self.extensions.clear();
+    self.access_log_start = None;
   }
 
   pub fn set_route(&mut self, route: Arc<Route>) {

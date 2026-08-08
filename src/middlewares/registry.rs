@@ -1,6 +1,7 @@
 use serde::Deserialize;
 
 use crate::config::MiddlewareConfig;
+use crate::middlewares::access_log::{AccessLogConfig, AccessLogMiddleware};
 use crate::middlewares::basic_auth::{BasicAuthConfig, BasicAuthMiddleware};
 use crate::middlewares::cache::{CacheConfig, CacheMiddleware};
 use crate::middlewares::compression::{CompressionConfig, CompressionMiddleware};
@@ -22,6 +23,7 @@ use crate::middlewares::Middleware;
 #[derive(Clone, Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum MiddlewareType {
+  AccessLog(AccessLogConfig),
   BasicAuth(BasicAuthConfig),
   Cache(CacheConfig),
   Compression(CompressionConfig),
@@ -42,6 +44,7 @@ pub enum MiddlewareType {
 
 pub fn build_middleware(cfg: &MiddlewareConfig) -> Result<Box<dyn Middleware>, String> {
   match &cfg.r#type {
+    MiddlewareType::AccessLog(v) => Ok(Box::new(AccessLogMiddleware::from_config(v.clone())?)),
     MiddlewareType::BasicAuth(v) => Ok(Box::new(BasicAuthMiddleware::from_config(v.clone())?)),
     MiddlewareType::Cache(v) => Ok(Box::new(CacheMiddleware::from_config(v.clone())?)),
     MiddlewareType::Compression(v) => Ok(Box::new(CompressionMiddleware::from_config(v.clone())?)),

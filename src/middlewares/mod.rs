@@ -1,3 +1,4 @@
+pub mod access_log;
 pub mod basic_auth;
 pub mod cache;
 pub mod compression;

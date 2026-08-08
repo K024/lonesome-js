@@ -22,6 +22,7 @@ ipnet = "2.12.1"
 josekit = "0.10.3"
 napi = { version = "3.12.0", features = ["async", "anyhow", "serde-json"] }
 napi-derive = "3.6.2"
+openssl = "0.10"
 password-auth = { version = "1.0.0", features = ["default", "scrypt", "pbkdf2"] }
 percent-encoding = "2.3.2"
 pingora = { version = "0.8.1", features = ["openssl", "proxy", "lb", "cache", "time"] }

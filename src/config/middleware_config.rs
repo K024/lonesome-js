@@ -8,6 +8,7 @@ pub struct MiddlewareConfig {
 impl MiddlewareConfig {
   pub fn validate(&self) -> Result<(), String> {
     match &self.r#type {
+      MiddlewareType::AccessLog(cfg) => cfg.validate(),
       MiddlewareType::BasicAuth(cfg) => cfg.validate(),
       MiddlewareType::Cache(cfg) => cfg.validate(),
       MiddlewareType::Compression(cfg) => cfg.validate(),

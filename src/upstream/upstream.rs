@@ -1,8 +1,12 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use cel::{Program, Value};
+use openssl::pkey::{PKey, Private};
+use openssl::x509::X509;
 use pingora::lb::Backend;
 use pingora::upstreams::peer::HttpPeer;
+use pingora::utils::tls::CertKey;
 use pingora::{Error, ErrorType, Result};
 
 use crate::config::{
@@ -22,6 +26,76 @@ pub struct UpstreamState {
   pub last_backend: Option<Backend>,
 }
 
+/// Per-upstream networking tunables applied to the pingora peer.
+///
+/// All timeouts default to `None` (no explicit timeout). `verify_cert`
+/// defaults to `true`.
+#[derive(Clone, Debug)]
+pub struct PeerTunables {
+  pub connect_timeout_ms: Option<u64>,
+  pub read_timeout_ms: Option<u64>,
+  pub write_timeout_ms: Option<u64>,
+  pub idle_timeout_ms: Option<u64>,
+  pub verify_cert: bool,
+  /// Parsed client certificate chain + private key for upstream mTLS.
+  pub client_cert_key: Option<(Vec<X509>, PKey<Private>)>,
+  /// Parsed CA bundle used to verify the upstream certificate.
+  pub ca: Option<Box<[X509]>>,
+}
+
+impl Default for PeerTunables {
+  fn default() -> Self {
+    Self {
+      connect_timeout_ms: None,
+      read_timeout_ms: None,
+      write_timeout_ms: None,
+      idle_timeout_ms: None,
+      verify_cert: true,
+      client_cert_key: None,
+      ca: None,
+    }
+  }
+}
+
+impl PeerTunables {
+  fn from_config(cfg: &UpstreamConfig) -> Result<Self, String> {
+    let client_cert_key = match (&cfg.client_cert_pem, &cfg.client_key_pem) {
+      (Some(cert), Some(key)) => {
+        let certs = X509::stack_from_pem(cert.as_bytes())
+          .map_err(|e| format!("invalid upstream client_cert_pem: {e}"))?;
+        let key = PKey::private_key_from_pem(key.as_bytes())
+          .map_err(|e| format!("invalid upstream client_key_pem: {e}"))?;
+        Some((certs, key))
+      }
+      (None, None) => None,
+      _ => {
+        return Err(
+          "upstream client_cert_pem and client_key_pem must be provided together".to_string(),
+        );
+      }
+    };
+
+    let ca = match &cfg.ca_cert_pem {
+      Some(pem) => Some(
+        X509::stack_from_pem(pem.as_bytes())
+          .map_err(|e| format!("invalid upstream ca_cert_pem: {e}"))?
+          .into_boxed_slice(),
+      ),
+      None => None,
+    };
+
+    Ok(Self {
+      connect_timeout_ms: cfg.connect_timeout_ms,
+      read_timeout_ms: cfg.read_timeout_ms,
+      write_timeout_ms: cfg.write_timeout_ms,
+      idle_timeout_ms: cfg.idle_timeout_ms,
+      verify_cert: cfg.verify_cert.unwrap_or(true),
+      client_cert_key,
+      ca,
+    })
+  }
+}
+
 #[derive(Clone)]
 pub enum UpstreamEndpoint {
   Tcp {
@@ -30,6 +104,7 @@ pub enum UpstreamEndpoint {
     h2c: bool,
     sni: String,
     weight: u32,
+    tunables: PeerTunables,
   },
   #[cfg(unix)]
   Unix {
@@ -38,6 +113,7 @@ pub enum UpstreamEndpoint {
     h2c: bool,
     sni: String,
     weight: u32,
+    tunables: PeerTunables,
   },
   VirtualJs {
     key: String,
@@ -45,6 +121,7 @@ pub enum UpstreamEndpoint {
     h2c: bool,
     sni: String,
     weight: u32,
+    tunables: PeerTunables,
   },
 }
 
@@ -95,31 +172,37 @@ impl UpstreamPool {
 
     let endpoints = upstreams
       .iter()
-      .map(|cfg| match &cfg.address {
-        UpstreamAddressConfig::Tcp(address) => UpstreamEndpoint::Tcp {
-          address: address.clone(),
-          tls: cfg.tls,
-          h2c: cfg.h2c.unwrap_or(false),
-          sni: cfg.sni.clone().unwrap_or_default(),
-          weight: cfg.weight,
-        },
-        #[cfg(unix)]
-        UpstreamAddressConfig::Unix(path) => UpstreamEndpoint::Unix {
-          path: path.clone(),
-          tls: cfg.tls,
-          h2c: cfg.h2c.unwrap_or(false),
-          sni: cfg.sni.clone().unwrap_or_default(),
-          weight: cfg.weight,
-        },
-        UpstreamAddressConfig::VirtualJs(key) => UpstreamEndpoint::VirtualJs {
-          key: key.clone(),
-          tls: cfg.tls,
-          h2c: cfg.h2c.unwrap_or(false),
-          sni: cfg.sni.clone().unwrap_or_default(),
-          weight: cfg.weight,
-        },
+      .map(|cfg| {
+        let tunables = PeerTunables::from_config(cfg)?;
+        Ok(match &cfg.address {
+          UpstreamAddressConfig::Tcp(address) => UpstreamEndpoint::Tcp {
+            address: address.clone(),
+            tls: cfg.tls,
+            h2c: cfg.h2c.unwrap_or(false),
+            sni: cfg.sni.clone().unwrap_or_default(),
+            weight: cfg.weight,
+            tunables,
+          },
+          #[cfg(unix)]
+          UpstreamAddressConfig::Unix(path) => UpstreamEndpoint::Unix {
+            path: path.clone(),
+            tls: cfg.tls,
+            h2c: cfg.h2c.unwrap_or(false),
+            sni: cfg.sni.clone().unwrap_or_default(),
+            weight: cfg.weight,
+            tunables,
+          },
+          UpstreamAddressConfig::VirtualJs(key) => UpstreamEndpoint::VirtualJs {
+            key: key.clone(),
+            tls: cfg.tls,
+            h2c: cfg.h2c.unwrap_or(false),
+            sni: cfg.sni.clone().unwrap_or_default(),
+            weight: cfg.weight,
+            tunables,
+          },
+        })
       })
-      .collect::<Vec<_>>();
+      .collect::<Result<Vec<_>, String>>()?;
 
     let lb_cfg = lb_cfg.unwrap_or_else(|| {
       if endpoints.len() > 1 {
@@ -212,15 +295,15 @@ impl UpstreamPool {
           std::io::Error::other(format!("route '{route_id}' has no load balancer")),
         ));
       };
-      let backend = lb
-        .select_backend(&key, max_iterations)
-        .ok_or_else(|| {
-          Error::because(
-            ErrorType::HTTPStatus(502),
-            "upstream selection failed",
-            std::io::Error::other(format!("route '{route_id}' failed to select an upstream backend")),
-          )
-        })?;
+      let backend = lb.select_backend(&key, max_iterations).ok_or_else(|| {
+        Error::because(
+          ErrorType::HTTPStatus(502),
+          "upstream selection failed",
+          std::io::Error::other(format!(
+            "route '{route_id}' failed to select an upstream backend"
+          )),
+        )
+      })?;
       if let Some(state) = proxy_ctx.upstream_state.as_mut() {
         state.last_endpoint_index = backend.ext.get::<EndpointIndex>().map(|idx| idx.0);
         state.last_backend = Some(backend.clone());
@@ -330,9 +413,11 @@ impl UpstreamPool {
         tls,
         h2c,
         sni,
+        tunables,
         ..
       } => {
         let mut peer = HttpPeer::new(address, *tls, sni.clone());
+        apply_peer_tunables(&mut peer, tunables);
         if !*tls && *h2c {
           peer.options.set_http_version(2, 2);
         }
@@ -344,6 +429,7 @@ impl UpstreamPool {
         tls,
         h2c,
         sni,
+        tunables,
         ..
       } => {
         let mut peer = HttpPeer::new_uds(path, *tls, sni.clone()).map_err(|e| {
@@ -353,6 +439,7 @@ impl UpstreamPool {
             std::io::Error::other(format!("failed to create uds peer: {e}")),
           )
         })?;
+        apply_peer_tunables(&mut peer, tunables);
         if !*tls && *h2c {
           peer.options.set_http_version(2, 2);
         }
@@ -379,5 +466,29 @@ impl UpstreamPool {
         Ok(Box::new(peer))
       }
     }
+  }
+}
+
+/// Apply per-upstream tunables (timeouts, cert verification, mTLS) to a peer.
+fn apply_peer_tunables(peer: &mut HttpPeer, tunables: &PeerTunables) {
+  if let Some(ms) = tunables.connect_timeout_ms {
+    peer.options.connection_timeout = Some(std::time::Duration::from_millis(ms));
+  }
+  if let Some(ms) = tunables.read_timeout_ms {
+    peer.options.read_timeout = Some(std::time::Duration::from_millis(ms));
+  }
+  if let Some(ms) = tunables.write_timeout_ms {
+    peer.options.write_timeout = Some(std::time::Duration::from_millis(ms));
+  }
+  if let Some(ms) = tunables.idle_timeout_ms {
+    peer.options.idle_timeout = Some(std::time::Duration::from_millis(ms));
+  }
+  peer.options.verify_cert = tunables.verify_cert;
+
+  if let Some((certs, key)) = &tunables.client_cert_key {
+    peer.client_cert_key = Some(Arc::new(CertKey::new(certs.clone(), key.clone())));
+  }
+  if let Some(ca) = &tunables.ca {
+    peer.options.ca = Some(Arc::new(ca.clone()));
   }
 }
