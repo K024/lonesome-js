@@ -61,7 +61,11 @@ impl AccessLogSink {
     let Some(handle) = tokio::runtime::Handle::try_current().ok() else {
       // Not in a tokio context (should not happen in practice): fall back to
       // a one-shot blocking append so the line is not silently lost.
-      if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(&self.path) {
+      if let Ok(mut file) = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&self.path)
+      {
         let _ = file.write_all(line.as_bytes());
       }
       return;

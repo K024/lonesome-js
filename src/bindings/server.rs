@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::sync::Mutex;
 
 use napi::bindgen_prelude::Result;
@@ -12,12 +13,21 @@ use crate::config::{
   ServerStatus as CoreServerStatus, StartupListenerConfig,
 };
 use crate::route::{Route, SharedRouteTable};
+use crate::server::cert_store::CertStore;
 use crate::server::LonesomeRuntime;
+
+#[napi(object)]
+pub struct UpdateCertOptions {
+  pub cert_pem: String,
+  pub key_pem: String,
+  pub allow_mismatch: Option<bool>,
+}
 
 #[napi]
 pub struct LonesomeServer {
   routes: SharedRouteTable,
   runtime: Mutex<Option<LonesomeRuntime>>,
+  cert_store: Arc<CertStore>,
 }
 
 fn build_route(route: RouteConfig) -> Result<Route> {
@@ -32,6 +42,7 @@ impl LonesomeServer {
     Self {
       routes: SharedRouteTable::new(),
       runtime: Mutex::new(None),
+      cert_store: Arc::new(CertStore::new()),
     }
   }
 
@@ -44,9 +55,37 @@ impl LonesomeServer {
       return Err(to_napi_error("lonesome server already started"));
     }
 
-    let rt = LonesomeRuntime::start(startup_cfg, self.routes.clone()).map_err(to_napi_error)?;
+    let rt = LonesomeRuntime::start(startup_cfg, self.routes.clone(), self.cert_store.clone())
+      .map_err(to_napi_error)?;
     *guard = Some(rt);
     Ok(())
+  }
+
+  /// Register or replace the TLS certificate served for `host`.
+  ///
+  /// - `'*'` replaces the global default certificate.
+  /// - `'example.com'` is an exact hostname.
+  /// - `'*.example.com'` is a one-label wildcard.
+  ///
+  /// Unless `options.allowMismatch` is set, the certificate's SAN/CN must
+  /// match `host`. Takes effect on the next TLS handshake.
+  #[napi]
+  pub fn update_cert(&self, host: String, options: UpdateCertOptions) -> Result<()> {
+    self
+      .cert_store
+      .set(
+        &host,
+        &options.cert_pem,
+        &options.key_pem,
+        options.allow_mismatch.unwrap_or(false),
+      )
+      .map_err(to_napi_error)
+  }
+
+  /// Remove a certificate previously registered via `setCert`.
+  #[napi]
+  pub fn remove_cert(&self, host: String) -> Result<bool> {
+    Ok(self.cert_store.remove(&host))
   }
 
   #[napi]

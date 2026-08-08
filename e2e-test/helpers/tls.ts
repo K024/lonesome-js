@@ -59,12 +59,16 @@ export function hasOpenssl(): boolean {
  * Generate a short-lived self-signed certificate for local e2e tests.
  * Requires a working openssl CLI on the host.
  */
-export function generateSelfSignedTlsCert(commonName = '127.0.0.1'): GeneratedTlsCert {
+export function generateSelfSignedTlsCert(commonName = '127.0.0.1', san?: string): GeneratedTlsCert {
   const dir = mkdtempSync(join(tmpdir(), 'lonesome-e2e-tls-'))
   const certPath = join(dir, 'cert.pem')
   const keyPath = join(dir, 'key.pem')
 
-  execFileSync('openssl', certArgs(keyPath, certPath, commonName), { stdio: 'ignore' })
+  const args = certArgs(keyPath, certPath, commonName)
+  if (san) {
+    args.push('-addext', `subjectAltName=DNS:${san}`)
+  }
+  execFileSync('openssl', args, { stdio: 'ignore' })
 
   return {
     certPath,

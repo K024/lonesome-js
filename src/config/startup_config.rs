@@ -5,8 +5,10 @@ pub enum StartupListenerConfig {
   },
   Tls {
     addr: String,
-    cert_path: String,
-    key_path: String,
+    /// Optional: if absent, the TLS listener relies on the runtime cert store
+    /// (a global default set via `updateCert('*')`).
+    cert_path: Option<String>,
+    key_path: Option<String>,
   },
   #[cfg(unix)]
   Unix {
@@ -42,11 +44,24 @@ impl StartupConfig {
           if addr.trim().is_empty() {
             return Err("tls listener addr cannot be empty".to_string());
           }
-          if cert_path.trim().is_empty() {
-            return Err("tls listener cert_path cannot be empty".to_string());
-          }
-          if key_path.trim().is_empty() {
-            return Err("tls listener key_path cannot be empty".to_string());
+          match (cert_path.as_deref(), key_path.as_deref()) {
+            (Some(cert), Some(key)) => {
+              if cert.trim().is_empty() {
+                return Err("tls listener cert_path cannot be empty".to_string());
+              }
+              if key.trim().is_empty() {
+                return Err("tls listener key_path cannot be empty".to_string());
+              }
+            }
+            (None, None) => {
+              // Allowed only when a global default cert is set via
+              // updateCert('*') before start(); enforced in LonesomeRuntime::start.
+            }
+            _ => {
+              return Err(
+                "tls listener cert_path and key_path must be provided together".to_string(),
+              );
+            }
           }
         }
         #[cfg(unix)]
