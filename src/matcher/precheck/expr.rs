@@ -10,11 +10,53 @@ pub enum Tri {
   Unknown,
 }
 
-fn from_bool(v: bool) -> Tri {
+pub(crate) fn from_bool(v: bool) -> Tri {
   if v {
     Tri::True
   } else {
     Tri::False
+  }
+}
+
+pub(crate) fn tri_and(a: Tri, b: Tri) -> Tri {
+  if matches!(a, Tri::False) || matches!(b, Tri::False) {
+    Tri::False
+  } else if matches!(a, Tri::Unknown) || matches!(b, Tri::Unknown) {
+    Tri::Unknown
+  } else {
+    Tri::True
+  }
+}
+
+pub(crate) fn tri_or(a: Tri, b: Tri) -> Tri {
+  if matches!(a, Tri::True) || matches!(b, Tri::True) {
+    Tri::True
+  } else if matches!(a, Tri::Unknown) || matches!(b, Tri::Unknown) {
+    Tri::Unknown
+  } else {
+    Tri::False
+  }
+}
+
+pub(crate) fn tri_not(a: Tri) -> Tri {
+  match a {
+    Tri::True => Tri::False,
+    Tri::False => Tri::True,
+    Tri::Unknown => Tri::Unknown,
+  }
+}
+
+pub(crate) fn tri_cond(cond: Tri, then: Tri, els: Tri) -> Tri {
+  match cond {
+    Tri::True => then,
+    Tri::False => els,
+    Tri::Unknown => {
+      if then == els {
+        then
+      } else {
+        Tri::Unknown
+      }
+    }
   }
 }
 
@@ -47,46 +89,10 @@ impl<C: ?Sized> CheapExpr<C> {
   /// Evaluates the constraint under Kleene's three-valued logic.
   pub fn eval(&self, ctx: &C) -> Tri {
     match self {
-      CheapExpr::And(a, b) => {
-        let la = a.eval(ctx);
-        let lb = b.eval(ctx);
-        if matches!(la, Tri::False) || matches!(lb, Tri::False) {
-          Tri::False
-        } else if matches!(la, Tri::Unknown) || matches!(lb, Tri::Unknown) {
-          Tri::Unknown
-        } else {
-          Tri::True
-        }
-      }
-      CheapExpr::Or(a, b) => {
-        let la = a.eval(ctx);
-        let lb = b.eval(ctx);
-        if matches!(la, Tri::True) || matches!(lb, Tri::True) {
-          Tri::True
-        } else if matches!(la, Tri::Unknown) || matches!(lb, Tri::Unknown) {
-          Tri::Unknown
-        } else {
-          Tri::False
-        }
-      }
-      CheapExpr::Not(inner) => match inner.eval(ctx) {
-        Tri::True => Tri::False,
-        Tri::False => Tri::True,
-        Tri::Unknown => Tri::Unknown,
-      },
-      CheapExpr::Cond(cond, then, els) => match cond.eval(ctx) {
-        Tri::True => then.eval(ctx),
-        Tri::False => els.eval(ctx),
-        Tri::Unknown => {
-          let t = then.eval(ctx);
-          let e = els.eval(ctx);
-          if t == e {
-            t
-          } else {
-            Tri::Unknown
-          }
-        }
-      },
+      CheapExpr::And(a, b) => tri_and(a.eval(ctx), b.eval(ctx)),
+      CheapExpr::Or(a, b) => tri_or(a.eval(ctx), b.eval(ctx)),
+      CheapExpr::Not(inner) => tri_not(inner.eval(ctx)),
+      CheapExpr::Cond(cond, then, els) => tri_cond(cond.eval(ctx), then.eval(ctx), els.eval(ctx)),
       CheapExpr::Check(f) => from_bool(f(ctx)),
       CheapExpr::Lit(v) => from_bool(*v),
       CheapExpr::Unknown => Tri::Unknown,

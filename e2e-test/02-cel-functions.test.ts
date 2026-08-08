@@ -219,3 +219,66 @@ describe('CEL predicates in rule fields', () => {
     })
   })
 })
+
+describe('Host wildcard matching', () => {
+  before(() => {
+    cleanups.push(withRoute(server, {
+      id: nextRouteId('cel-host-wildcard'),
+      matcher: { rule: "Host('*.example.com')", priority: 60 },
+      middlewares: [
+        {
+          type: 'respond',
+          config: {
+            status: 200,
+            content_type: 'text/plain; charset=utf-8',
+            body_expression: "'wildcard'",
+          },
+        },
+      ],
+      upstreams: tcpUpstream(upstream.port),
+    }))
+
+    cleanups.push(withRoute(server, {
+      id: nextRouteId('cel-host-exact'),
+      matcher: { rule: "Host('exact.example.com')", priority: 90 },
+      middlewares: [
+        {
+          type: 'respond',
+          config: {
+            status: 200,
+            content_type: 'text/plain; charset=utf-8',
+            body_expression: "'exact'",
+          },
+        },
+      ],
+      upstreams: tcpUpstream(upstream.port),
+    }))
+  })
+
+  it('Host("*.example.com") matches a single subdomain label', async () => {
+    const { response, body } = await requestWithCustomHost(proxyPort, '/', 'api.example.com')
+    assert.strictEqual(response.statusCode, 200)
+    assert.strictEqual(body, 'wildcard')
+  })
+
+  it('Host("*.example.com") does not match the apex domain', async () => {
+    const { response } = await requestWithCustomHost(proxyPort, '/', 'example.com')
+    assert.strictEqual(response.statusCode, 404)
+  })
+
+  it('Host("*.example.com") does not match multi-label subdomains', async () => {
+    const { response } = await requestWithCustomHost(proxyPort, '/', 'a.b.example.com')
+    assert.strictEqual(response.statusCode, 404)
+  })
+
+  it('Host("*.example.com") does not match unrelated hosts', async () => {
+    const { response } = await requestWithCustomHost(proxyPort, '/', 'other.com')
+    assert.strictEqual(response.statusCode, 404)
+  })
+
+  it('exact Host() still works and wins over the wildcard by priority', async () => {
+    const { response, body } = await requestWithCustomHost(proxyPort, '/', 'exact.example.com')
+    assert.strictEqual(response.statusCode, 200)
+    assert.strictEqual(body, 'exact')
+  })
+})

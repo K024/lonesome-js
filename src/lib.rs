@@ -12,4 +12,5 @@ pub mod upstream;
 pub mod virtual_js;
 
 pub use bindings::cache::purge_route_cache;
+pub use bindings::rule_analysis::analyze_rule;
 pub use bindings::server::LonesomeServer;

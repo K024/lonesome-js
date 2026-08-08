@@ -20,7 +20,26 @@ fn with_session<R>(ftx: &FunctionContext, f: impl FnOnce(&CelHttpSession) -> R) 
 }
 
 fn host(ftx: &FunctionContext, expected: Arc<String>) -> bool {
-  with_session(ftx, |s| s.host() == expected.as_str()).unwrap_or(false)
+  with_session(ftx, |s| host_matches(s.host(), expected.as_str())).unwrap_or(false)
+}
+
+/// Matches a request host against a `Host(...)` pattern.
+///
+/// A pattern of `*.example.com` matches exactly one subdomain label:
+/// `api.example.com` matches, but `example.com` (the apex) and
+/// `a.b.example.com` (multiple labels) do not. This mirrors DNS/TLS wildcard
+/// semantics, so a `*.example.com` rule lines up with a `*.example.com`
+/// certificate. Any other pattern is matched exactly. This single function is
+/// the source of truth for both the CEL `Host` function and the route pre-check
+/// so they can never diverge.
+pub fn host_matches(actual: &str, pattern: &str) -> bool {
+  if let Some(base) = pattern.strip_prefix("*.") {
+    actual
+      .split_once('.')
+      .is_some_and(|(label, rest)| !label.is_empty() && rest == base)
+  } else {
+    actual == pattern
+  }
 }
 
 fn host_regexp(ftx: &FunctionContext, pattern: Arc<String>) -> bool {

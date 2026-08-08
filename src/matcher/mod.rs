@@ -5,3 +5,4 @@ mod precheck;
 pub mod matcher;
 
 pub use matcher::Matcher;
+pub use precheck::{analyze, RuleConstraints};

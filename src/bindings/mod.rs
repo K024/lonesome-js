@@ -3,6 +3,7 @@ pub mod error;
 pub mod interceptor;
 pub mod middleware_config;
 pub mod route_config;
+pub mod rule_analysis;
 pub mod server;
 pub mod startup_config;
 pub mod status;

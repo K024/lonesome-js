@@ -26,6 +26,18 @@ CEL is used in three main places:
 - If a matcher expression does not return a boolean, the route is treated as not matched.
 - Middleware `rule` expressions apply only when they evaluate to `true`.
 
+## Static Rule Analysis
+
+`analyzeRule(rule)` statically extracts the `Host`/`Path`/`PathPrefix` string
+literals a matcher rule references, useful for certificate automation (a
+`Host("*.example.com")` pattern lines up with a `*.example.com` wildcard
+certificate).
+
+Only simple boolean rules are analyzed: `Host`/`Path`/`PathPrefix` literals
+combined with `&&`, `||`, `!`, and the ternary. Complex CEL such as
+`HostRegexp`, comparisons, or member calls (`PathValue().startsWith(...)`) is
+not analyzed — for such rules the caller must handle the semantics itself.
+
 ## Performance
 
 Route matcher rules that are pure boolean combinations of `Host`, `Path`, and
@@ -59,6 +71,11 @@ functions in this project are reserved for helpers that read request/session dat
 - `QueryRegexp(name, pattern)`
 - `ClientIP(ip_or_cidr)`
 - `JwtClaim(name, expected)`
+
+`Host` supports `*.` wildcard subdomain matching with DNS/TLS semantics:
+`Host("*.example.com")` matches exactly one subdomain label, so `api.example.com`
+matches but `example.com` (the apex) and `a.b.example.com` (multiple labels) do
+not. Use `HostRegexp` for more complex host matching.
 
 ### Value functions
 

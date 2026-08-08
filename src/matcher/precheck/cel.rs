@@ -2,6 +2,7 @@ use cel::common::ast::operators::{CONDITIONAL, LOGICAL_AND, LOGICAL_NOT, LOGICAL
 use cel::common::ast::{CallExpr, Expr, IdedExpr, LiteralValue};
 
 use super::expr::CheapExpr;
+use crate::matcher::cel_common::host_matches;
 
 const FN_HOST: &str = "Host";
 const FN_PATH: &str = "Path";
@@ -52,7 +53,7 @@ fn build_call<C: Source + ?Sized>(call: &CallExpr) -> Option<CheapExpr<C>> {
       let check: Box<dyn Fn(&C) -> bool + Send + Sync> = match call.func_name.as_str() {
         FN_PATH => Box::new(move |ctx: &C| ctx.path() == value.as_str()),
         FN_PATH_PREFIX => Box::new(move |ctx: &C| ctx.path().starts_with(value.as_str())),
-        _ => Box::new(move |ctx: &C| ctx.host() == value.as_str()),
+        _ => Box::new(move |ctx: &C| host_matches(ctx.host(), &value)),
       };
       Some(CheapExpr::Check(check))
     }
@@ -87,6 +88,83 @@ fn build_call<C: Source + ?Sized>(call: &CallExpr) -> Option<CheapExpr<C>> {
 /// get a sound pre-filter from their cheap part.
 fn build_opt<C: Source + ?Sized>(expr: &IdedExpr) -> CheapExpr<C> {
   build(expr).unwrap_or(CheapExpr::Unknown)
+}
+
+/// Static constraints referenced by a matcher CEL rule, extracted from the AST.
+///
+/// This only walks the same boolean skeleton the route pre-check optimizes
+/// (`Host`/`Path`/`PathPrefix` with string literals combined by `&&`/`||`/`!`/
+/// `?:`). Complex CEL (comparisons, member calls, `HostRegexp`, ...) is not
+/// analyzed — for those, the caller must handle the semantics itself.
+///
+/// Intended for certificate automation: `hosts` are the exact hostnames the
+/// rule can match (`*.example.com` wildcard patterns included, matching a
+/// wildcard certificate).
+#[derive(Clone, Debug, Default)]
+pub struct RuleConstraints {
+  pub hosts: Vec<String>,
+  pub paths: Vec<String>,
+  pub path_prefixes: Vec<String>,
+}
+
+/// Statically analyzes a compiled CEL expression for the `Host`/`Path`/
+/// `PathPrefix` string-literal constraints it references.
+pub fn analyze(expr: &IdedExpr) -> RuleConstraints {
+  let mut hosts = Vec::new();
+  let mut paths = Vec::new();
+  let mut path_prefixes = Vec::new();
+  collect_cheap(expr, &mut hosts, &mut paths, &mut path_prefixes);
+
+  RuleConstraints {
+    hosts,
+    paths,
+    path_prefixes,
+  }
+}
+
+fn push_unique(list: &mut Vec<String>, value: String) {
+  if !list.contains(&value) {
+    list.push(value);
+  }
+}
+
+fn collect_cheap(
+  expr: &IdedExpr,
+  hosts: &mut Vec<String>,
+  paths: &mut Vec<String>,
+  path_prefixes: &mut Vec<String>,
+) {
+  let Expr::Call(call) = &expr.expr else {
+    return;
+  };
+
+  if call.target.is_none() && call.args.len() == 1 {
+    if let Expr::Literal(LiteralValue::String(value)) = &call.args[0].expr {
+      let value = value.inner().to_string();
+      match call.func_name.as_str() {
+        FN_HOST => push_unique(hosts, value),
+        FN_PATH => push_unique(paths, value),
+        FN_PATH_PREFIX => push_unique(path_prefixes, value),
+        _ => {}
+      }
+    }
+  }
+
+  match call.func_name.as_str() {
+    LOGICAL_AND | LOGICAL_OR if call.args.len() == 2 => {
+      collect_cheap(&call.args[0], hosts, paths, path_prefixes);
+      collect_cheap(&call.args[1], hosts, paths, path_prefixes);
+    }
+    LOGICAL_NOT if call.args.len() == 1 => {
+      collect_cheap(&call.args[0], hosts, paths, path_prefixes);
+    }
+    CONDITIONAL if call.args.len() == 3 => {
+      collect_cheap(&call.args[0], hosts, paths, path_prefixes);
+      collect_cheap(&call.args[1], hosts, paths, path_prefixes);
+      collect_cheap(&call.args[2], hosts, paths, path_prefixes);
+    }
+    _ => {}
+  }
 }
 
 #[cfg(test)]
@@ -131,6 +209,16 @@ mod tests {
     let host = t(r#"Host("example.com")"#);
     assert_eq!(host.eval(&("example.com", "/")), Tri::True);
     assert_eq!(host.eval(&("other.com", "/")), Tri::False);
+
+    let wildcard = t(r#"Host("*.example.com")"#);
+    assert_eq!(wildcard.eval(&("api.example.com", "/")), Tri::True);
+    assert_eq!(
+      wildcard.eval(&("a.b.example.com", "/")),
+      Tri::False,
+      "DNS-style wildcard matches a single label only"
+    );
+    assert_eq!(wildcard.eval(&("example.com", "/")), Tri::False, "wildcard excludes the apex");
+    assert_eq!(wildcard.eval(&("other.com", "/")), Tri::False);
 
     let path = t(r#"Path("/api")"#);
     assert_eq!(path.eval(&("h", "/api")), Tri::True);
@@ -259,9 +347,11 @@ mod tests {
     }
   }
 
-  const RULES: [&str; 24] = [
+  const RULES: [&str; 26] = [
     // Pure cheap: no unknown leaves, eval is exact
     r#"Host("a")"#,
+    r#"Host("*.example.com")"#,
+    r#"Host("example.com") || Host("*.example.com")"#,
     r#"Path("/x")"#,
     r#"PathPrefix("/api")"#,
     r#"Host("a") || Host("b")"#,
@@ -288,7 +378,7 @@ mod tests {
     r#"PathPrefix("/api") && PathValue().startsWith("/api/v1")"#,
   ];
 
-  const HOSTS: [&str; 3] = ["a", "b", "example.com"];
+  const HOSTS: [&str; 4] = ["a", "b", "example.com", "api.example.com"];
   const PATHS: [&str; 4] = ["/x", "/api", "/api/v1", "/other"];
 
   #[test]
@@ -368,5 +458,43 @@ mod tests {
       );
       assert_eq!(run_cel(rule, host, path), *expected, "CEL mismatch: {rule} {host} {path}");
     }
+  }
+
+  #[test]
+  fn analyze_extracts_constraints() {
+    use crate::matcher::precheck::RuleConstraints;
+
+    fn a(rule: &str) -> RuleConstraints {
+      let program = Program::compile(rule).expect("rule should compile");
+      super::analyze(program.expression())
+    }
+
+    let c = a(r#"Host("example.com") && PathPrefix("/api")"#);
+    assert_eq!(c.hosts, ["example.com".to_string()]);
+    assert_eq!(c.path_prefixes, ["/api".to_string()]);
+
+    let c = a(r#"Host("a") || Host("b")"#);
+    assert_eq!(c.hosts, ["a".to_string(), "b".to_string()]);
+
+    let c = a(r#"Host("a") || Header("x", "y")"#);
+    assert_eq!(c.hosts, ["a".to_string()], "unknown leaves still let the Host part be extracted");
+
+    let c = a(r#"PathPrefix("/api")"#);
+    assert!(c.hosts.is_empty());
+    assert_eq!(c.path_prefixes, ["/api".to_string()]);
+
+    let c = a(r#"Host("*.example.com")"#);
+    assert_eq!(c.hosts, ["*.example.com".to_string()]);
+
+    // Complex CEL is not analyzed.
+    let c = a(r#"HostRegexp("^[a-z]+\\.example\\.com$")"#);
+    assert!(c.hosts.is_empty());
+
+    let c = a(r#"HostValue() == "a""#);
+    assert!(c.hosts.is_empty());
+
+    let c = a(r#"Host("api.example.com") && Path("/x")"#);
+    assert_eq!(c.hosts, ["api.example.com".to_string()]);
+    assert_eq!(c.paths, ["/x".to_string()]);
   }
 }
