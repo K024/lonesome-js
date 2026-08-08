@@ -1,9 +1,10 @@
-import { describe, it, before, after } from 'node:test'
+import { it, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { startProxy } from './helpers/proxy.js'
 import { createUnixDynamicUpstream } from './helpers/unix-upstream.js'
 import { nextRouteId, withRoute } from './helpers/routes.js'
 import { proxyFetch } from './helpers/request.js'
+import { conditionalDescribe } from './helpers/conditional_describe.js'
 import type { LonesomeServer, UpstreamConfig } from '../dist/index.js'
 
 let server: LonesomeServer
@@ -14,9 +15,7 @@ let cleanupRoundRobin: (() => void) | undefined
 let cleanupConsistentHash: (() => void) | undefined
 const consistentRouteId = nextRouteId('unix-lb-consistent')
 
-const skipOnWindows = {
-  skip: process.platform === 'win32' ? 'unix socket upstreams not supported on Windows' : false,
-}
+const skipOnWindows = process.platform === 'win32' ? 'unix socket upstreams not supported on Windows' : false
 
 function unixUpstreams(): UpstreamConfig[] {
   return [upstreamA.path, upstreamB.path].map((path) => ({
@@ -28,7 +27,7 @@ function unixUpstreams(): UpstreamConfig[] {
   }))
 }
 
-describe('unix upstream load balancing', skipOnWindows, () => {
+conditionalDescribe('unix upstream load balancing', skipOnWindows, () => {
   before(async () => {
     await upstreamA.start()
     await upstreamB.start()

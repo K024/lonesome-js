@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'node:test'
+import { it, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import https from 'node:https'
@@ -7,13 +7,12 @@ import { startProxy } from './helpers/proxy.js'
 import { nextRouteId, withRoute } from './helpers/routes.js'
 import { proxyFetch } from './helpers/request.js'
 import { generateSelfSignedTlsCert, hasOpenssl } from './helpers/tls.js'
+import { conditionalDescribe } from './helpers/conditional_describe.js'
 import type { LonesomeServer, UpstreamConfig } from '../dist/index.js'
 
-const skipWithoutOpenssl = {
-  skip: hasOpenssl() ? false : 'requires openssl CLI (not available on this host)',
-}
+const skipWithoutOpenssl = hasOpenssl() ? false : 'requires openssl CLI (not available on this host)'
 
-describe('upstream TLS verification', skipWithoutOpenssl, () => {
+conditionalDescribe('upstream TLS verification', skipWithoutOpenssl, () => {
   let server: LonesomeServer
   let proxyPort: number
   let tlsPort: number

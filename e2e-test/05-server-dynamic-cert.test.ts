@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'node:test'
+import { it, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import tls from 'node:tls'
 import { readFileSync } from 'node:fs'
@@ -6,12 +6,11 @@ import { LonesomeServer } from '../dist/index.js'
 import type { LonesomeServer as LonesomeServerType } from '../dist/index.js'
 import { pickFreePort, sleep } from './helpers/proxy.js'
 import { generateSelfSignedTlsCert, hasOpenssl } from './helpers/tls.js'
+import { conditionalDescribe } from './helpers/conditional_describe.js'
 
-const skipWithoutOpenssl = {
-  skip: hasOpenssl() ? false : 'requires openssl CLI (not available on this host)',
-}
+const skipWithoutOpenssl = hasOpenssl() ? false : 'requires openssl CLI (not available on this host)'
 
-describe('dynamic TLS certs (SNI)', skipWithoutOpenssl, () => {
+conditionalDescribe('dynamic TLS certs (SNI)', skipWithoutOpenssl, () => {
   let server: LonesomeServerType
   let tlsPort: number
 

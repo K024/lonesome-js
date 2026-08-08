@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'node:test'
+import { it, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import https from 'node:https'
 import type { AddressInfo } from 'node:net'
@@ -7,13 +7,12 @@ import { startProxy } from './helpers/proxy.js'
 import { nextRouteId, withRoute } from './helpers/routes.js'
 import { proxyFetch } from './helpers/request.js'
 import { generateMtlsFixtures, hasOpenssl } from './helpers/tls.js'
+import { conditionalDescribe } from './helpers/conditional_describe.js'
 import type { LonesomeServer, UpstreamConfig } from '../dist/index.js'
 
-const skipWithoutOpenssl = {
-  skip: hasOpenssl() ? false : 'requires openssl CLI (not available on this host)',
-}
+const skipWithoutOpenssl = hasOpenssl() ? false : 'requires openssl CLI (not available on this host)'
 
-describe('upstream mTLS', skipWithoutOpenssl, () => {
+conditionalDescribe('upstream mTLS', skipWithoutOpenssl, () => {
   let server: LonesomeServer
   let proxyPort: number
   let tlsPort: number

@@ -86,9 +86,6 @@ impl LonesomeRuntime {
               } else {
                 // No static cert: handshakes are answered from the cert store;
                 // LonesomeRuntime::start enforces a global default exists.
-                eprintln!(
-                  "warn: tls listener {addr} has no static cert; relying on updateCert('*')"
-                );
               }
               tls.enable_h2();
               service.add_tls_with_settings(&addr, None, tls);

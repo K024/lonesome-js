@@ -8,6 +8,7 @@ import { nextRouteId, tcpUpstream, withRoute } from './helpers/routes.js'
 import { requestRawHttps } from './helpers/request.js'
 import { pickFreePort, sleep } from './helpers/proxy.js'
 import { generateSelfSignedTlsCert, hasOpenssl } from './helpers/tls.js'
+import { conditionalDescribe } from './helpers/conditional_describe.js'
 import { request as httpRequest } from 'node:http'
 
 let server: LonesomeServerType
@@ -17,11 +18,9 @@ let tlsCleanup: (() => void) | undefined
 const upstream = createDynamicUpstream()
 const cleanups: Array<() => void> = []
 
-const skipWithoutOpenssl = {
-  skip: hasOpenssl() ? false : 'requires openssl CLI (not available on this host)',
-}
+const skipWithoutOpenssl = hasOpenssl() ? false : 'requires openssl CLI (not available on this host)'
 
-describe('middleware: redirect_https over tls listener', skipWithoutOpenssl, () => {
+conditionalDescribe('middleware: redirect_https over tls listener', skipWithoutOpenssl, () => {
   before(async () => {
     await upstream.start()
     httpPort = await pickFreePort()

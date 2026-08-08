@@ -9,6 +9,7 @@ import type { LonesomeServer, UpstreamConfig } from '../dist/index.js'
 import { startProxy } from './helpers/proxy.js'
 import { proxyFetch } from './helpers/request.js'
 import { nextRouteId, withRoute } from './helpers/routes.js'
+import { conditionalDescribe } from './helpers/conditional_describe.js'
 
 type CountingUpstream = {
   endpoint: UpstreamConfig
@@ -93,9 +94,7 @@ async function makeRequests(port: number, path: string, count: number): Promise<
   }
 }
 
-const skipOnWindows = {
-  skip: process.platform === 'win32' ? 'unix socket upstreams not supported on Windows' : false,
-}
+const skipOnWindows = process.platform === 'win32' ? 'unix socket upstreams not supported on Windows' : false
 
 describe('TCP upstream connection reuse', () => {
   let server: LonesomeServer
@@ -139,7 +138,7 @@ describe('TCP upstream connection reuse', () => {
   })
 })
 
-describe('Unix upstream connection reuse', skipOnWindows, () => {
+conditionalDescribe('Unix upstream connection reuse', skipOnWindows, () => {
   let server: LonesomeServer
   let proxyPort: number
   let unix: CountingUpstream
