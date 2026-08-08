@@ -50,7 +50,7 @@ index 4aa70f7..6831d39 100644
 @@ -395,6 +395,20 @@ impl Stream {
          self.stream.as_mut().expect("stream should always be set")
      }
-
+ 
 +    pub(crate) fn reuse_permitted(&self) -> bool {
 +        match &self.stream().get_ref().stream {
 +            RawStream::Virtual(stream) => stream.is_reusable(),
@@ -86,7 +86,7 @@ index 5148e41..5e56913 100644
 +        false
 +    }
  }
-
+ 
  /// Wrapper around any type implementing  [`VirtualSocket`].
 @@ -38,6 +47,11 @@ impl VirtualSocketStream {
      pub fn set_socket_option(&self, opt: VirtualSockOpt) -> std::io::Result<()> {
@@ -98,7 +98,7 @@ index 5148e41..5e56913 100644
 +        self.socket.is_reusable()
 +    }
  }
-
+ 
  impl AsyncRead for VirtualSocketStream {
 diff --git a/src/protocols/mod.rs b/src/protocols/mod.rs
 index 1f8cce0..a5e998f 100644
@@ -116,7 +116,7 @@ index 1f8cce0..a5e998f 100644
 +            .map_or(true, crate::protocols::l4::stream::Stream::reuse_permitted)
 +    }
  }
-
+ 
  impl<
 @@ -283,7 +290,7 @@ use log::{debug, error};
  #[cfg(unix)]
@@ -273,7 +273,7 @@ index c9ae0a6..49cf9f7 100644
 --- a/src/upstreams/peer.rs
 +++ b/src/upstreams/peer.rs
 @@ -16,6 +16,7 @@
-
+ 
  use crate::connectors::{l4::BindTo, L4Connect};
  use crate::protocols::l4::socket::SocketAddr;
 +use crate::protocols::Stream;
@@ -283,7 +283,7 @@ index c9ae0a6..49cf9f7 100644
 @@ -260,6 +261,39 @@ pub trait Peer: Display + Clone {
          self.address().check_fd_match(fd)
      }
-
+ 
 +    /// Decide whether an idle stream belongs to this peer and may be reused.
 +    ///
 +    /// TCP and Unix streams are validated through their OS socket identity.
@@ -323,7 +323,7 @@ index c9ae0a6..49cf9f7 100644
 @@ -743,6 +777,35 @@ impl Peer for HttpPeer {
          }
      }
-
+ 
 +    fn matches_stream(&self, stream: &Stream) -> bool {
 +        if stream
 +            .as_any()

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import {
+  cpSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -22,6 +23,7 @@ const cacheDirectory = resolve(root, 'target', 'patch-cache')
 const downloadedArchive = resolve(cacheDirectory, archiveName)
 const patch = resolve(root, 'patches', `${crate.name}+${crate.version}.patch`)
 const target = resolve(root, 'target', 'patch', `${crate.name}-${crate.version}`)
+const pristineTarget = resolve(root, 'target', 'patch', `${crate.name}-${crate.version}-pristine`)
 const marker = resolve(target, '.lonesome-patch.json')
 
 function sha256(path) {
@@ -90,17 +92,23 @@ if (existsSync(marker)) {
     && current.version === crate.version
     && current.archiveSha256 === archiveSha256
     && current.patchSha256 === patchSha256
+    && existsSync(pristineTarget)
+    && existsSync(resolve(target, '.git'))
   ) {
     process.exit(0)
   }
 }
 
 rmSync(target, { recursive: true, force: true })
+rmSync(pristineTarget, { recursive: true, force: true })
 mkdirSync(dirname(target), { recursive: true })
 run('tar', ['-xzf', archive, '-C', dirname(target)])
-run('git', ['init', '--quiet', target])
+cpSync(target, pristineTarget, { recursive: true })
+
+gitInit(target)
+gitInit(pristineTarget)
 run('git', ['-C', target, 'apply', '--whitespace=nowarn', patch])
-rmSync(resolve(target, '.git'), { recursive: true, force: true })
+
 writeFileSync(
   marker,
   `${JSON.stringify({
@@ -110,3 +118,20 @@ writeFileSync(
     patchSha256,
   }, null, 2)}\n`,
 )
+
+function gitInit(dir) {
+  run('git', ['-C', dir, 'init', '--quiet'])
+  run('git', ['-C', dir, 'add', '-A'])
+  run('git', [
+    '-C',
+    dir,
+    '-c',
+    'user.name=lonesome-js',
+    '-c',
+    'user.email=patch@local',
+    'commit',
+    '--quiet',
+    '-m',
+    `${crate.name} ${crate.version} pristine source`,
+  ])
+}
