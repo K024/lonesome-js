@@ -19,7 +19,8 @@ conditionalDescribe('dynamic TLS certs (SNI)', skipWithoutOpenssl, () => {
   const apiCert = generateSelfSignedTlsCert('api.example.com', 'api.example.com')
   const apiCert2 = generateSelfSignedTlsCert('api2.example.com', 'api.example.com')
   const wildcardCert = generateSelfSignedTlsCert('*.example.com', '*.example.com')
-  const cleanups = [defaultCert, globalCert, apiCert, apiCert2, wildcardCert].map((c) => c.cleanup)
+  const multiWildcardCert = generateSelfSignedTlsCert('*.b.example.com', '*.b.example.com')
+  const cleanups = [defaultCert, globalCert, apiCert, apiCert2, wildcardCert, multiWildcardCert].map((c) => c.cleanup)
 
   const certPem = (c: typeof defaultCert) => readFileSync(c.certPath, 'utf8')
   const keyPem = (c: typeof defaultCert) => readFileSync(c.keyPath, 'utf8')
@@ -84,6 +85,18 @@ conditionalDescribe('dynamic TLS certs (SNI)', skipWithoutOpenssl, () => {
     assert.strictEqual(await getServedCN('www.example.com'), '*.example.com')
     // `*.example.com` must NOT match a two-label subdomain
     assert.strictEqual(await getServedCN('a.b.example.com'), 'default.local')
+  })
+
+  it('serves a deeper multi-level wildcard for its immediate parent only', async () => {
+    server.updateCert('*.b.example.com', {
+      certPem: certPem(multiWildcardCert),
+      keyPem: keyPem(multiWildcardCert),
+    })
+
+    // `*.b.example.com` covers exactly one label below `b.example.com`
+    assert.strictEqual(await getServedCN('a.b.example.com'), '*.b.example.com')
+    // one more label falls through neither wildcard and hits the static cert
+    assert.strictEqual(await getServedCN('x.a.b.example.com'), 'default.local')
   })
 
   it('hot-updates an exact cert on the next handshake', async () => {

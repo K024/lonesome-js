@@ -216,7 +216,12 @@ mod tests {
     assert_eq!(
       wildcard.eval(&("a.b.example.com", "/")),
       Tri::False,
-      "DNS-style wildcard matches a single label only"
+      "TLS wildcard matches a single subdomain label only"
+    );
+    assert_eq!(
+      wildcard.eval(&("sub.a.b.example.com", "/")),
+      Tri::False,
+      "multi-level subdomains are not covered by a one-label wildcard"
     );
     assert_eq!(
       wildcard.eval(&("example.com", "/")),

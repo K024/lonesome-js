@@ -1,4 +1,3 @@
-import { mkdtemp } from 'node:fs/promises'
 import { createServer as createHttpServer } from 'node:http'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { availableParallelism, cpus, tmpdir } from 'node:os'
@@ -220,8 +219,9 @@ async function setupTcp(setup: BenchSetup): Promise<{ upstreams: UpstreamConfig[
 }
 
 async function setupUnix(setup: BenchSetup): Promise<{ upstreams: UpstreamConfig[]; resources: ActiveResource[] }> {
-  const dir = await mkdtemp(join(tmpdir(), 'lonesome-bench-'))
-  const socketPath = join(dir, 'bench.sock')
+  // No temp directory: the socket file itself is the only artifact, and
+  // `upstream.stop()` removes it.
+  const socketPath = join(tmpdir(), `lonesome-bench-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.sock`)
   const upstream = createUnixUpstream(socketPath, makeResponseHandler(setup.payload))
   await upstream.start()
 

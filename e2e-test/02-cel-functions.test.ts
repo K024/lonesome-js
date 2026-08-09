@@ -154,6 +154,62 @@ describe('CEL standard utility functions', () => {
   })
 })
 
+describe('CEL string functions', () => {
+  before(() => {
+    cleanups.push(withRoute(server, {
+      id: nextRouteId('cel-str'),
+      matcher: { rule: "PathPrefix('/cel/str')", priority: 70 },
+      middlewares: [
+        {
+          type: 'respond',
+          config: {
+            status: 200,
+            content_type: 'text/plain; charset=utf-8',
+            body_expression:
+              "(PathValue().startsWith('/cel/str') ? 'true' : 'false') + '|' + (PathValue().endsWith('/app.js') ? 'true' : 'false') + '|' + (PathValue().contains('str') ? 'true' : 'false') + '|' + (PathValue().matches('^/cel/str/') ? 'true' : 'false') + '|' + string(size(PathValue()))",
+          },
+        },
+      ],
+      upstreams: tcpUpstream(upstream.port),
+    }))
+  })
+
+  it('supports startsWith/endsWith/contains/size/matches', async () => {
+    const res = await proxyFetch(proxyPort, '/cel/str/app.js')
+    const text = await res.text()
+    assert.strictEqual(res.status, 200)
+    assert.strictEqual(text, 'true|true|true|true|15')
+  })
+})
+
+describe('CEL standard library (stdlib)', () => {
+  before(() => {
+    cleanups.push(withRoute(server, {
+      id: nextRouteId('cel-stdlib'),
+      matcher: { rule: "PathPrefix('/cel/stdlib')", priority: 70 },
+      middlewares: [
+        {
+          type: 'respond',
+          config: {
+            status: 200,
+            content_type: 'text/plain; charset=utf-8',
+            body_expression:
+              "([1,2,3].exists(x, x > 2) ? 'true' : 'false') + '|' + ([1,2,3].all(x, x > 0) ? 'true' : 'false') + '|' + string([1,2,3].filter(x, x % 2 == 0).size()) + '|' + string([1,2].map(x, x * 10)[1]) + '|' + string(int('42')) + '|' + string(uint(7)) + '|' + string(double('1.5')) + '|' + string(duration('1h').getHours()) + '|' + string(timestamp('2020-01-01T00:00:00Z').getFullYear()) + '|' + string(size(b'abc'))",
+          },
+        },
+      ],
+      upstreams: tcpUpstream(upstream.port),
+    }))
+  })
+
+  it('supports comprehensions, conversions, date/time, and bytes', async () => {
+    const res = await proxyFetch(proxyPort, '/cel/stdlib/test')
+    const text = await res.text()
+    assert.strictEqual(res.status, 200)
+    assert.strictEqual(text, 'true|true|1|20|42|7|1.5|1|2020|3')
+  })
+})
+
 describe('CEL predicates in rule fields', () => {
   describe('request_headers rule with HeaderRegexp and QueryRegexp', () => {
     before(() => {
@@ -268,6 +324,11 @@ describe('Host wildcard matching', () => {
 
   it('Host("*.example.com") does not match multi-label subdomains', async () => {
     const { response } = await requestWithCustomHost(proxyPort, '/', 'a.b.example.com')
+    assert.strictEqual(response.statusCode, 404)
+  })
+
+  it('Host("*.example.com") does not match deeper multi-label subdomains', async () => {
+    const { response } = await requestWithCustomHost(proxyPort, '/', 'x.y.a.b.example.com')
     assert.strictEqual(response.statusCode, 404)
   })
 

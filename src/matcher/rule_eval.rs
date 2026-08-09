@@ -315,8 +315,14 @@ mod tests {
   #[test]
   fn expression_pure_scalars() {
     assert_eq!(eval_expr("1 + 2", "/", None), serde_json::json!(3));
-    assert_eq!(eval_expr(r#""a" + "b""#, "/", None), serde_json::json!("ab"));
-    assert_eq!(eval_expr("true && false", "/", None), serde_json::json!(false));
+    assert_eq!(
+      eval_expr(r#""a" + "b""#, "/", None),
+      serde_json::json!("ab")
+    );
+    assert_eq!(
+      eval_expr("true && false", "/", None),
+      serde_json::json!(false)
+    );
   }
 
   #[test]
@@ -343,7 +349,10 @@ mod tests {
 
   #[test]
   fn expression_errors() {
-    assert!(evaluate_expression("1 +", "GET", "/", None).is_err(), "compile error");
+    assert!(
+      evaluate_expression("1 +", "GET", "/", None).is_err(),
+      "compile error"
+    );
     assert!(
       evaluate_expression("NonExistFunction()", "GET", "/", None).is_err(),
       "runtime error"

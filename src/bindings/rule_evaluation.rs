@@ -2,7 +2,9 @@ use napi::bindgen_prelude::Result;
 use napi_derive::napi;
 
 use crate::bindings::error::to_napi_error;
-use crate::matcher::{evaluate_expression as core_evaluate_expression, evaluate_rule as core_evaluate_rule, PrecheckTri};
+use crate::matcher::{
+  evaluate_expression as core_evaluate_expression, evaluate_rule as core_evaluate_rule, PrecheckTri,
+};
 
 #[napi(object)]
 pub struct HeaderInput {
@@ -45,9 +47,8 @@ pub fn evaluate_rule(rule: String, request: RequestOptions) -> Result<RuleEvalua
   let headers: Option<Vec<(String, String)>> = request
     .headers
     .map(|hs| hs.into_iter().map(|h| (h.name, h.value)).collect());
-  let r =
-    core_evaluate_rule(&rule, &request.method, &request.path, headers.as_deref())
-      .map_err(|e| to_napi_error(e))?;
+  let r = core_evaluate_rule(&rule, &request.method, &request.path, headers.as_deref())
+    .map_err(|e| to_napi_error(e))?;
 
   Ok(RuleEvaluation {
     precheck: match r.precheck {
@@ -81,8 +82,11 @@ pub fn evaluate_expression(
     Some(r) => (
       r.method,
       r.path,
-      r.headers
-        .map(|hs| hs.into_iter().map(|h| (h.name, h.value)).collect::<Vec<_>>()),
+      r.headers.map(|hs| {
+        hs.into_iter()
+          .map(|h| (h.name, h.value))
+          .collect::<Vec<_>>()
+      }),
     ),
     None => ("GET".to_string(), "/".to_string(), None),
   };

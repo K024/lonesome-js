@@ -90,6 +90,19 @@ describe('matcher', () => {
     })
   })
 
+  describe('HostRegexp', () => {
+    before(() => route("HostRegexp('^[a-z]+\\\\.example\\\\.com$') && PathPrefix('/m/hre')"))
+
+    it('matches host matching regexp', async () => {
+      const { response } = await requestWithCustomHost(proxyPort, '/m/hre/test', 'api.example.com')
+      assert.strictEqual(response.statusCode, 200)
+    })
+    it('does not match host not matching regexp', async () => {
+      const { response } = await requestWithCustomHost(proxyPort, '/m/hre/test', 'api.example.org')
+      assert.strictEqual(response.statusCode, 404)
+    })
+  })
+
   describe('Header (exact)', () => {
     before(() => route("Header('x-env', 'prod') && PathPrefix('/m/hdr')"))
 

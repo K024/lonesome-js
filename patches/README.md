@@ -4,6 +4,26 @@
 streams and enables programmatic shutdown on Windows. The patch is applied to
 the pinned upstream crate source before Cargo builds the project.
 
+## Current patch features
+
+- **Virtual L4 stream reuse** — virtual transports (e.g. virtual JS sockets)
+  can opt in to the connection reuse pool: `VirtualSocketStream::is_reusable`
+  defaults to `false`, and the pool only retains a virtual stream when its
+  transport explicitly permits it (`Stream::reuse_permitted` /
+  `Peer::matches_stream`).
+- **Unix socket reuse comparison fix** — `getpeername()` returns the peer
+  path as it appears in the fixed-size `sun_path` buffer; the remainder of
+  the buffer is zero-padded, so a short pathname comes back followed by
+  **multiple** trailing NUL bytes (not just one). See
+  [unix(7) — Linux manual page](https://man7.org/linux/man-pages/man7/unix.7.html),
+  "Pathname sockets" / BUGS. The `ConnFdReusable for Path` comparison now
+  trims all trailing NUL bytes, so previously mismatched sockets are
+  correctly recognized as reusable.
+- **Windows shutdown signal** — Windows has no OS-level `SIGTERM`. The default
+  `ShutdownSignalWatch` waits forever (Ctrl+C drives shutdown through
+  `main_loop`), and `RunArgs` on Windows accepts a programmatic
+  `ShutdownSignalWatch` so the host process can stop the server.
+
 Run:
 
 ```sh

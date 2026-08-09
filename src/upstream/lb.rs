@@ -13,7 +13,7 @@ use pingora::lb::{Backend, Backends, Extensions, LoadBalancer};
 use pingora::protocols::l4::socket::SocketAddr;
 
 use crate::config::{LoadBalancerAlgorithm, LoadBalancerConfig};
-use crate::upstream::upstream::UpstreamEndpoint;
+use crate::upstream::upstream::{PeerTunables, UpstreamEndpoint};
 
 #[derive(Clone, Copy, Debug)]
 pub struct EndpointIndex(pub usize);
@@ -301,5 +301,156 @@ pub fn observe_backend_health(
   } else {
     let next_window = now + failure_window_ms;
     state.observe_failure(next_window);
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  fn virtual_js(key: &str) -> UpstreamEndpoint {
+    UpstreamEndpoint::VirtualJs {
+      key: key.to_string(),
+      tls: false,
+      h2c: false,
+      sni: String::new(),
+      weight: 1,
+      tunables: PeerTunables::default(),
+    }
+  }
+
+  fn assert_doc_prefix(addr: SocketAddr) {
+    let SocketAddr::Inet(StdSocketAddr::V6(v6)) = addr else {
+      panic!("expected inet v6 address, got {addr:?}");
+    };
+    assert_eq!(
+      &v6.ip().octets()[..4],
+      &[0x20, 0x01, 0x0d, 0xb8],
+      "synthetic address must be under 2001:db8::/32"
+    );
+    assert_eq!(v6.port(), 1);
+  }
+
+  #[test]
+  fn virtual_js_identity_is_stable_per_key() {
+    let a1 = synthetic_backend_addr(&virtual_js("route-a")).unwrap();
+    let a2 = synthetic_backend_addr(&virtual_js("route-a")).unwrap();
+    assert_eq!(a1, a2, "same endpoint must map to the same ring identity");
+    assert_doc_prefix(a1);
+  }
+
+  #[test]
+  fn distinct_endpoints_map_distinctly() {
+    let a = synthetic_backend_addr(&virtual_js("route-a")).unwrap();
+    let b = synthetic_backend_addr(&virtual_js("route-b")).unwrap();
+    assert_ne!(a, b);
+  }
+
+  #[test]
+  fn tcp_endpoints_have_no_synthetic_addr() {
+    let tcp = UpstreamEndpoint::Tcp {
+      address: "127.0.0.1:8080".to_string(),
+      tls: false,
+      h2c: false,
+      sni: String::new(),
+      weight: 1,
+      tunables: PeerTunables::default(),
+    };
+    assert!(synthetic_backend_addr(&tcp).is_err());
+  }
+
+  #[cfg(unix)]
+  #[test]
+  fn unix_path_identity_is_stable() {
+    let unix = |path: &str| UpstreamEndpoint::Unix {
+      path: path.to_string(),
+      tls: false,
+      h2c: false,
+      sni: String::new(),
+      weight: 1,
+      tunables: PeerTunables::default(),
+    };
+    let a = synthetic_backend_addr(&unix("/tmp/a.sock")).unwrap();
+    let b = synthetic_backend_addr(&unix("/tmp/a.sock")).unwrap();
+    assert_eq!(a, b);
+    assert_doc_prefix(a);
+
+    let c = synthetic_backend_addr(&unix("/tmp/b.sock")).unwrap();
+    assert_ne!(a, c);
+  }
+
+  #[cfg(unix)]
+  #[test]
+  fn virtual_js_and_unix_with_same_string_do_not_collide() {
+    let virtual_js = UpstreamEndpoint::VirtualJs {
+      key: "/tmp/a.sock".to_string(),
+      tls: false,
+      h2c: false,
+      sni: String::new(),
+      weight: 1,
+      tunables: PeerTunables::default(),
+    };
+    let unix = UpstreamEndpoint::Unix {
+      path: "/tmp/a.sock".to_string(),
+      tls: false,
+      h2c: false,
+      sni: String::new(),
+      weight: 1,
+      tunables: PeerTunables::default(),
+    };
+
+    let a = synthetic_backend_addr(&virtual_js).unwrap();
+    let b = synthetic_backend_addr(&unix).unwrap();
+    assert_ne!(
+      a, b,
+      "the endpoint-type discriminator must keep virtual js and unix distinct"
+    );
+  }
+
+  #[test]
+  fn passive_health_starts_healthy() {
+    let s = PassiveHealthState::default();
+    assert!(s.is_healthy(0));
+    assert_eq!(s.tolerance(), 0);
+    assert!(!s.tracked());
+  }
+
+  #[test]
+  fn passive_health_success_resets_tolerance() {
+    let s = PassiveHealthState::default();
+    s.observe_success(5);
+    assert_eq!(s.tolerance(), 5);
+    assert!(s.is_healthy(0));
+  }
+
+  #[test]
+  fn passive_health_failures_make_unhealthy_until_window_elapses() {
+    let s = PassiveHealthState::default();
+    s.observe_success(2); // tolerate up to 2 consecutive failures
+    s.observe_failure(100);
+    assert!(s.is_healthy(50), "still within the allowed failure count");
+    s.observe_failure(100);
+    assert!(s.is_healthy(50), "tolerance at exactly 0 is still healthy");
+    s.observe_failure(100); // tolerance now -1
+    assert!(!s.is_healthy(50), "below tolerance and inside the window -> unhealthy");
+    assert!(s.is_healthy(200), "window elapsed -> healthy again");
+  }
+
+  #[test]
+  fn passive_health_success_recovers_immediately() {
+    let s = PassiveHealthState::default();
+    s.observe_success(1);
+    s.observe_failure(1000);
+    s.observe_failure(1000); // tolerance -1
+    assert!(!s.is_healthy(0));
+    s.observe_success(1);
+    assert!(s.is_healthy(0), "a success resets health without waiting for the window");
+  }
+
+  #[test]
+  fn passive_health_marks_tracked() {
+    let s = PassiveHealthState::default();
+    s.mark_tracked();
+    assert!(s.tracked());
   }
 }
