@@ -13,7 +13,7 @@ use pingora::lb::{Backend, Backends, Extensions, LoadBalancer};
 use pingora::protocols::l4::socket::SocketAddr;
 
 use crate::config::{LoadBalancerAlgorithm, LoadBalancerConfig};
-use crate::upstream::upstream::{PeerTunables, UpstreamEndpoint};
+use crate::upstream::upstream::UpstreamEndpoint;
 
 #[derive(Clone, Copy, Debug)]
 pub struct EndpointIndex(pub usize);
@@ -307,6 +307,7 @@ pub fn observe_backend_health(
 #[cfg(test)]
 mod tests {
   use super::*;
+  use crate::upstream::upstream::PeerTunables;
 
   fn virtual_js(key: &str) -> UpstreamEndpoint {
     UpstreamEndpoint::VirtualJs {
@@ -432,7 +433,10 @@ mod tests {
     s.observe_failure(100);
     assert!(s.is_healthy(50), "tolerance at exactly 0 is still healthy");
     s.observe_failure(100); // tolerance now -1
-    assert!(!s.is_healthy(50), "below tolerance and inside the window -> unhealthy");
+    assert!(
+      !s.is_healthy(50),
+      "below tolerance and inside the window -> unhealthy"
+    );
     assert!(s.is_healthy(200), "window elapsed -> healthy again");
   }
 
@@ -444,7 +448,10 @@ mod tests {
     s.observe_failure(1000); // tolerance -1
     assert!(!s.is_healthy(0));
     s.observe_success(1);
-    assert!(s.is_healthy(0), "a success resets health without waiting for the window");
+    assert!(
+      s.is_healthy(0),
+      "a success resets health without waiting for the window"
+    );
   }
 
   #[test]
