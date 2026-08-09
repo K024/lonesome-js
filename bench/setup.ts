@@ -306,6 +306,9 @@ export async function startBenchEnvironment(setup: BenchSetup, startup: BenchSta
       upstreamSetup = await setupTcp(setup)
       upstreamEndpoint = upstreamSetup.upstreams[0]?.address ?? ''
     } else if (setup.upstream === 'unix') {
+      if (process.platform === 'win32') {
+        throw new Error('unix upstream is not supported on Windows')
+      }
       upstreamSetup = await setupUnix(setup)
       upstreamEndpoint = upstreamSetup.upstreams[0]?.address ?? ''
     } else if (setup.upstream === 'virtual_js') {

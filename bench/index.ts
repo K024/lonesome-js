@@ -1,9 +1,21 @@
 import 'zx/globals'
+import { usePowerShell } from 'zx'
 
 import { parseArgs } from 'node:util'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createInterface } from 'node:readline'
+
+// Resolve `npx`/`k6` via PowerShell on Windows so `$` templates work the
+// same as on POSIX; must run before any command is invoked.
+if (process.platform === 'win32') usePowerShell()
+
+// One-shot commands below use zx `$` templates, which route through a shell:
+// `/bin/sh` on POSIX, PowerShell (usePowerShell) on Windows — both resolve
+// `npx`/`k6` from PATH. The long-running setup process stays on `$.spawn`
+// because its stdout is streamed to a parser; `$.spawn` is shell-less, so on
+// Windows it needs `shell: true` (cmd.exe) to resolve the `npx` .cmd shim.
+const winShell = process.platform === 'win32'
 
 type SetupRuntime = {
   suiteInfo: {
@@ -138,7 +150,13 @@ function waitForSetupRuntime(setupProc: ReturnType<typeof $.spawn>): Promise<Set
 
 async function stopSetup(setupProc: ReturnType<typeof $.spawn>): Promise<void> {
   if (setupProc.killed) return
-  setupProc.kill('SIGINT')
+  if (process.platform === 'win32') {
+    // child.kill('SIGINT') hard-terminates on Windows and skips the child's
+    // signal handlers; taskkill terminates the whole process tree instead.
+    await $({ nothrow: true })`taskkill /pid ${setupProc.pid} /T /F`
+  } else {
+    setupProc.kill('SIGINT')
+  }
   await new Promise<void>((resolveDone) => {
     setupProc.once('close', () => resolveDone())
   })
@@ -148,6 +166,7 @@ async function runBench(options: CliOptions): Promise<void> {
   const k6Script = options.k6Script ?? 'bench/k6/http-get.js'
   const setupProc = $.spawn('npx', buildSetupArgs(options), {
     stdio: ['ignore', 'pipe', 'pipe'],
+    shell: winShell,
   })
 
   const runtime = await waitForSetupRuntime(setupProc)
@@ -166,7 +185,7 @@ async function runBench(options: CliOptions): Promise<void> {
   )
 
   try {
-    await $({
+    const k6 = await $({
       env: {
         ...process.env,
         BENCH_HOST: runtime.runtime.host,
@@ -176,7 +195,11 @@ async function runBench(options: CliOptions): Promise<void> {
         K6_DURATION: options.duration ?? process.env.K6_DURATION ?? '20s',
       },
       stdio: 'inherit',
+      nothrow: true,
     })`k6 run ${k6Script}`
+    if (k6.exitCode !== 0) {
+      process.exitCode = k6.exitCode ?? 1
+    }
   } finally {
     await stopSetup(setupProc)
   }
