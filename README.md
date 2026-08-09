@@ -37,7 +37,7 @@ Beyond TCP/Unix socket upstreams, `virtual_js` allows requests to be bridged int
 npm i lonesome-js
 ```
 
-> Windows prebuilt binding is temporarily unavailable; use WSL as a temporary workaround.
+> Windows on arm prebuilt binding is not available; use WSL as a temporary workaround, or build it yourself.
 
 ### 2. Start a proxy server
 

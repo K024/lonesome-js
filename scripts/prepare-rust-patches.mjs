@@ -25,6 +25,7 @@ const patch = resolve(root, 'patches', `${crate.name}+${crate.version}.patch`)
 const target = resolve(root, 'target', 'patch', `${crate.name}-${crate.version}`)
 const pristineTarget = resolve(root, 'target', 'patch', `${crate.name}-${crate.version}-pristine`)
 const marker = resolve(target, '.lonesome-patch.json')
+const normalizedPatch = resolve(cacheDirectory, `${crate.name}-${crate.version}.patch.lf`)
 
 function sha256(path) {
   return createHash('sha256').update(readFileSync(path)).digest('hex')
@@ -107,7 +108,7 @@ cpSync(target, pristineTarget, { recursive: true })
 
 gitInit(target)
 gitInit(pristineTarget)
-run('git', ['-C', target, 'apply', '--whitespace=nowarn', patch])
+applyPatch()
 
 writeFileSync(
   marker,
@@ -134,4 +135,12 @@ function gitInit(dir) {
     '-m',
     `${crate.name} ${crate.version} pristine source`,
   ])
+}
+
+// `git apply` is line-ending sensitive: the committed patch can be checked out
+// as CRLF on Windows (core.autocrlf=true) while the extracted crate source is
+// LF, which makes every hunk fail. Normalize the patch to LF before applying.
+function applyPatch() {
+  writeFileSync(normalizedPatch, readFileSync(patch, 'utf8').replace(/\r\n/g, '\n'))
+  run('git', ['-C', target, 'apply', '--whitespace=nowarn', normalizedPatch])
 }
