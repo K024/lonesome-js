@@ -1,3 +1,4 @@
+use std::str::FromStr;
 use std::sync::{Arc, OnceLock, RwLock};
 
 use cel::objects::{Opaque, OpaqueEq};
@@ -191,24 +192,40 @@ impl CelHttpSession {
       .unwrap_or_default()
   }
 
-  #[cfg(test)]
-  pub(crate) fn with_host_path(host: &str, path: &str) -> Self {
-    let host_once = OnceLock::new();
-    host_once.set(host.to_string()).expect("host unset");
-    let path_once = OnceLock::new();
-    path_once.set(path.to_string()).expect("path unset");
-    Self {
-      req_header: RequestHeader::build("GET", b"/", None).expect("build test request header"),
+  /// Builds a synthetic session from minimal request inputs for offline rule
+  /// evaluation. Everything else takes its default: no TLS SNI, no client
+  /// address (empty `ClientIP`), no JWT payload, no upstream response header,
+  /// `RequestTime` = now. `path` is the origin-form request target, including
+  /// query (`/api?x=1`); the host comes from a `host` header when provided.
+  pub(crate) fn with_request(
+    method: &str,
+    path: &str,
+    headers: Option<&[(String, String)]>,
+  ) -> Result<Self, String> {
+    let size_hint = headers.map_or(0, |hs| hs.len());
+    let mut req_header = RequestHeader::build(method, path.as_bytes(), Some(size_hint))
+      .map_err(|e| format!("invalid request: {e}"))?;
+    if let Some(headers) = headers {
+      for (name, value) in headers {
+        let name = http::header::HeaderName::from_str(name)
+          .map_err(|e| format!("invalid header name: {e}"))?;
+        let value = http::header::HeaderValue::from_str(value)
+          .map_err(|e| format!("invalid header value for '{name}': {e}"))?;
+        req_header.headers.append(name, value);
+      }
+    }
+    Ok(Self {
+      req_header,
       upstream_res_header: RwLock::new(None),
       jwt_payload: RwLock::new(None),
       client_addr: None,
       tls_sni: None,
       request_time: chrono::Utc::now().fixed_offset(),
-      host: host_once,
-      path: path_once,
+      host: OnceLock::new(),
+      path: OnceLock::new(),
       client_ip: OnceLock::new(),
       query_pairs: OnceLock::new(),
-    }
+    })
   }
 }
 

@@ -1,12 +1,30 @@
 use cel::common::ast::operators::{CONDITIONAL, LOGICAL_AND, LOGICAL_NOT, LOGICAL_OR};
 use cel::common::ast::{CallExpr, Expr, IdedExpr, LiteralValue};
 
-use super::expr::CheapExpr;
+use super::expr::{CheapExpr, Leaf};
 use crate::matcher::cel_common::host_matches;
 
 const FN_HOST: &str = "Host";
 const FN_PATH: &str = "Path";
 const FN_PATH_PREFIX: &str = "PathPrefix";
+
+/// Leaf metadata for the CEL builder: which constraint a cheap leaf checks
+/// together with the string literal it references.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CheckMeta {
+  Host(String),
+  Path(String),
+  PathPrefix(String),
+}
+
+/// The one cheap-check implementation, dispatching on [`CheckMeta`].
+fn check<C: Source + ?Sized>(ctx: &C, meta: &CheckMeta) -> bool {
+  match meta {
+    CheckMeta::Host(value) => host_matches(ctx.host(), value),
+    CheckMeta::Path(value) => ctx.path() == value.as_str(),
+    CheckMeta::PathPrefix(value) => ctx.path().starts_with(value.as_str()),
+  }
+}
 
 /// Request attributes that concrete cheap-check leaves consult.
 ///
@@ -26,7 +44,7 @@ pub trait Source {
 /// evaluated safely (e.g. the root is a comparison, a comprehension or an
 /// unknown function call). In that case no pre-filter should be applied and
 /// the full CEL program is the only source of truth.
-pub fn build<C: Source + ?Sized>(expr: &IdedExpr) -> Option<CheapExpr<C>> {
+pub fn build<C: Source + ?Sized>(expr: &IdedExpr) -> Option<CheapExpr<C, CheckMeta>> {
   match &expr.expr {
     Expr::Call(call) => build_call(call),
     Expr::Literal(LiteralValue::Boolean(v)) => Some(CheapExpr::Lit(*v.inner())),
@@ -34,7 +52,7 @@ pub fn build<C: Source + ?Sized>(expr: &IdedExpr) -> Option<CheapExpr<C>> {
   }
 }
 
-fn build_call<C: Source + ?Sized>(call: &CallExpr) -> Option<CheapExpr<C>> {
+fn build_call<C: Source + ?Sized>(call: &CallExpr) -> Option<CheapExpr<C, CheckMeta>> {
   if call.target.is_some() {
     return None;
   }
@@ -50,35 +68,27 @@ fn build_call<C: Source + ?Sized>(call: &CallExpr) -> Option<CheapExpr<C>> {
         return None;
       };
       let value = value.inner().to_string();
-      let check: Box<dyn Fn(&C) -> bool + Send + Sync> = match call.func_name.as_str() {
-        FN_PATH => Box::new(move |ctx: &C| ctx.path() == value.as_str()),
-        FN_PATH_PREFIX => Box::new(move |ctx: &C| ctx.path().starts_with(value.as_str())),
-        _ => Box::new(move |ctx: &C| host_matches(ctx.host(), &value)),
+      let meta = match call.func_name.as_str() {
+        FN_PATH => CheckMeta::Path(value),
+        FN_PATH_PREFIX => CheckMeta::PathPrefix(value),
+        _ => CheckMeta::Host(value),
       };
-      Some(CheapExpr::Check(check))
+      Some(CheapExpr::Check(Leaf::new(meta, check)))
     }
-    LOGICAL_AND if call.args.len() == 2 => {
-      Some(CheapExpr::And(
-        Box::new(build_opt(&call.args[0])),
-        Box::new(build_opt(&call.args[1])),
-      ))
-    }
-    LOGICAL_OR if call.args.len() == 2 => {
-      Some(CheapExpr::Or(
-        Box::new(build_opt(&call.args[0])),
-        Box::new(build_opt(&call.args[1])),
-      ))
-    }
-    LOGICAL_NOT if call.args.len() == 1 => {
-      Some(CheapExpr::Not(Box::new(build_opt(&call.args[0]))))
-    }
-    CONDITIONAL if call.args.len() == 3 => {
-      Some(CheapExpr::Cond(
-        Box::new(build_opt(&call.args[0])),
-        Box::new(build_opt(&call.args[1])),
-        Box::new(build_opt(&call.args[2])),
-      ))
-    }
+    LOGICAL_AND if call.args.len() == 2 => Some(CheapExpr::And(
+      Box::new(build_opt(&call.args[0])),
+      Box::new(build_opt(&call.args[1])),
+    )),
+    LOGICAL_OR if call.args.len() == 2 => Some(CheapExpr::Or(
+      Box::new(build_opt(&call.args[0])),
+      Box::new(build_opt(&call.args[1])),
+    )),
+    LOGICAL_NOT if call.args.len() == 1 => Some(CheapExpr::Not(Box::new(build_opt(&call.args[0])))),
+    CONDITIONAL if call.args.len() == 3 => Some(CheapExpr::Cond(
+      Box::new(build_opt(&call.args[0])),
+      Box::new(build_opt(&call.args[1])),
+      Box::new(build_opt(&call.args[2])),
+    )),
     _ => None,
   }
 }
@@ -86,7 +96,7 @@ fn build_call<C: Source + ?Sized>(call: &CallExpr) -> Option<CheapExpr<C>> {
 /// Like `build`, but collapses unoptimizable sub-expressions into `Unknown`
 /// so that recognized logical wrappers (e.g. `Host("a") && Header(...)`) still
 /// get a sound pre-filter from their cheap part.
-fn build_opt<C: Source + ?Sized>(expr: &IdedExpr) -> CheapExpr<C> {
+fn build_opt<C: Source + ?Sized>(expr: &IdedExpr) -> CheapExpr<C, CheckMeta> {
   build(expr).unwrap_or(CheapExpr::Unknown)
 }
 
@@ -105,6 +115,25 @@ pub struct RuleConstraints {
   pub hosts: Vec<String>,
   pub paths: Vec<String>,
   pub path_prefixes: Vec<String>,
+  /// Whether the whole expression can be decided by the pre-checker alone:
+  /// `true` when [`build`] yields a tree with no `Unknown` leaf, so the full
+  /// CEL program is never consulted; `false` when the rule is not buildable or
+  /// contains leaves the pre-checker cannot evaluate.
+  pub fully_precheckable: bool,
+}
+
+/// Dummy source used only to inspect the pre-check tree shape for
+/// [`RuleConstraints::fully_precheckable`]; its accessors are never invoked.
+struct UnitSource;
+
+impl Source for UnitSource {
+  fn host(&self) -> &str {
+    ""
+  }
+
+  fn path(&self) -> &str {
+    ""
+  }
 }
 
 /// Statically analyzes a compiled CEL expression for the `Host`/`Path`/
@@ -113,57 +142,29 @@ pub fn analyze(expr: &IdedExpr) -> RuleConstraints {
   let mut hosts = Vec::new();
   let mut paths = Vec::new();
   let mut path_prefixes = Vec::new();
-  collect_cheap(expr, &mut hosts, &mut paths, &mut path_prefixes);
+
+  let cheap = build::<UnitSource>(expr);
+  let fully_precheckable = cheap.as_ref().is_some_and(|e| e.is_complete());
+
+  if let Some(cheap) = cheap {
+    cheap.for_each_leaf(&mut |meta| match meta {
+      CheckMeta::Host(value) => push_unique(&mut hosts, value),
+      CheckMeta::Path(value) => push_unique(&mut paths, value),
+      CheckMeta::PathPrefix(value) => push_unique(&mut path_prefixes, value),
+    });
+  }
 
   RuleConstraints {
     hosts,
     paths,
     path_prefixes,
+    fully_precheckable,
   }
 }
 
-fn push_unique(list: &mut Vec<String>, value: String) {
-  if !list.contains(&value) {
-    list.push(value);
-  }
-}
-
-fn collect_cheap(
-  expr: &IdedExpr,
-  hosts: &mut Vec<String>,
-  paths: &mut Vec<String>,
-  path_prefixes: &mut Vec<String>,
-) {
-  let Expr::Call(call) = &expr.expr else {
-    return;
-  };
-
-  if call.target.is_none() && call.args.len() == 1 {
-    if let Expr::Literal(LiteralValue::String(value)) = &call.args[0].expr {
-      let value = value.inner().to_string();
-      match call.func_name.as_str() {
-        FN_HOST => push_unique(hosts, value),
-        FN_PATH => push_unique(paths, value),
-        FN_PATH_PREFIX => push_unique(path_prefixes, value),
-        _ => {}
-      }
-    }
-  }
-
-  match call.func_name.as_str() {
-    LOGICAL_AND | LOGICAL_OR if call.args.len() == 2 => {
-      collect_cheap(&call.args[0], hosts, paths, path_prefixes);
-      collect_cheap(&call.args[1], hosts, paths, path_prefixes);
-    }
-    LOGICAL_NOT if call.args.len() == 1 => {
-      collect_cheap(&call.args[0], hosts, paths, path_prefixes);
-    }
-    CONDITIONAL if call.args.len() == 3 => {
-      collect_cheap(&call.args[0], hosts, paths, path_prefixes);
-      collect_cheap(&call.args[1], hosts, paths, path_prefixes);
-      collect_cheap(&call.args[2], hosts, paths, path_prefixes);
-    }
-    _ => {}
+fn push_unique(list: &mut Vec<String>, value: &String) {
+  if !list.contains(value) {
+    list.push(value.clone());
   }
 }
 
@@ -179,7 +180,7 @@ mod tests {
   use crate::matcher::cel_session_context::{cel_http_session_key, CelHttpSession};
   use crate::matcher::precheck::{CheapExpr, Tri};
 
-  use super::{build, Source};
+  use super::{build, CheckMeta, Source};
 
   impl Source for (&str, &str) {
     fn host(&self) -> &str {
@@ -191,7 +192,7 @@ mod tests {
     }
   }
 
-  fn t(source: &str) -> CheapExpr<(&'static str, &'static str)> {
+  fn t(source: &str) -> CheapExpr<(&'static str, &'static str), CheckMeta> {
     let program = Program::compile(source).expect("rule should compile");
     build(program.expression()).expect("rule should be buildable")
   }
@@ -217,7 +218,11 @@ mod tests {
       Tri::False,
       "DNS-style wildcard matches a single label only"
     );
-    assert_eq!(wildcard.eval(&("example.com", "/")), Tri::False, "wildcard excludes the apex");
+    assert_eq!(
+      wildcard.eval(&("example.com", "/")),
+      Tri::False,
+      "wildcard excludes the apex"
+    );
     assert_eq!(wildcard.eval(&("other.com", "/")), Tri::False);
 
     let path = t(r#"Path("/api")"#);
@@ -288,7 +293,7 @@ mod tests {
 
   /// Every possible result of the unknown leaves, as [has_false, has_true].
   fn possible(
-    e: &CheapExpr<(&'static str, &'static str)>,
+    e: &CheapExpr<(&'static str, &'static str), CheckMeta>,
     host: &'static str,
     path: &'static str,
   ) -> [bool; 2] {
@@ -299,10 +304,10 @@ mod tests {
         r[*v as usize] = true;
         r
       }
-      CheapExpr::Check(f) => {
+      CheapExpr::Check(leaf) => {
         let ctx = (host, path);
         let mut r = [false, false];
-        r[f(&ctx) as usize] = true;
+        r[(leaf.check)(&ctx, &leaf.meta) as usize] = true;
         r
       }
       CheapExpr::Not(inner) => {
@@ -329,7 +334,7 @@ mod tests {
   }
 
   fn assert_kleene_consistent(
-    e: &CheapExpr<(&'static str, &'static str)>,
+    e: &CheapExpr<(&'static str, &'static str), CheckMeta>,
     host: &'static str,
     path: &'static str,
   ) {
@@ -343,7 +348,10 @@ mod tests {
         has_false && !has_true,
         "eval=False but some completion is true: {host} {path}"
       ),
-      Tri::Unknown => assert!(has_true && has_false, "eval=U but results are not split: {host} {path}"),
+      Tri::Unknown => assert!(
+        has_true && has_false,
+        "eval=U but results are not split: {host} {path}"
+      ),
     }
   }
 
@@ -397,7 +405,14 @@ mod tests {
   /// `CelHttpSession` seeded with the given host/path.
   fn run_cel(rule: &str, host: &str, path: &str) -> bool {
     let program = Program::compile(rule).expect("rule should compile");
-    let session = Arc::new(CelHttpSession::with_host_path(host, path));
+    let session = Arc::new(
+      CelHttpSession::with_request(
+        "GET",
+        path,
+        Some(&[(String::from("host"), host.to_string())]),
+      )
+      .expect("build request header"),
+    );
     let mut ctx = parent_context().new_inner_scope();
     ctx.add_variable_from_value(
       cel_http_session_key(),
@@ -456,7 +471,11 @@ mod tests {
         build::<(&'static str, &'static str)>(program.expression()).is_none(),
         "expected no pre-filter for non-optimizable rule: {rule}"
       );
-      assert_eq!(run_cel(rule, host, path), *expected, "CEL mismatch: {rule} {host} {path}");
+      assert_eq!(
+        run_cel(rule, host, path),
+        *expected,
+        "CEL mismatch: {rule} {host} {path}"
+      );
     }
   }
 
@@ -477,7 +496,11 @@ mod tests {
     assert_eq!(c.hosts, ["a".to_string(), "b".to_string()]);
 
     let c = a(r#"Host("a") || Header("x", "y")"#);
-    assert_eq!(c.hosts, ["a".to_string()], "unknown leaves still let the Host part be extracted");
+    assert_eq!(
+      c.hosts,
+      ["a".to_string()],
+      "unknown leaves still let the Host part be extracted"
+    );
 
     let c = a(r#"PathPrefix("/api")"#);
     assert!(c.hosts.is_empty());
@@ -496,5 +519,44 @@ mod tests {
     let c = a(r#"Host("api.example.com") && Path("/x")"#);
     assert_eq!(c.hosts, ["api.example.com".to_string()]);
     assert_eq!(c.paths, ["/x".to_string()]);
+  }
+
+  #[test]
+  fn analyze_reports_full_precheckability() {
+    use crate::matcher::precheck::RuleConstraints;
+
+    fn a(rule: &str) -> RuleConstraints {
+      let program = Program::compile(rule).expect("rule should compile");
+      super::analyze(program.expression())
+    }
+
+    for rule in [
+      r#"Host("a")"#,
+      r#"Host("a") || Host("b")"#,
+      r#"Host("a") && Path("/x") && PathPrefix("/api")"#,
+      r#"!Host("a")"#,
+      r#"Host("a") ? Path("/x") : PathPrefix("/y")"#,
+      r#"true"#,
+      r#"!false"#,
+    ] {
+      assert!(
+        a(rule).fully_precheckable,
+        "expected fully pre-checkable: {rule}"
+      );
+    }
+
+    for rule in [
+      r#"Host("a") && Header("x", "y")"#,
+      r#"Host("a") || JwtClaim("role", "admin")"#,
+      r#"Host("a") ? Header("h", "v") : Path("/x")"#,
+      r#"HostRegexp("^[a-z]+$")"#,
+      r#"HostValue() == "a""#,
+      r#"PathValue().startsWith("/api")"#,
+    ] {
+      assert!(
+        !a(rule).fully_precheckable,
+        "expected NOT fully pre-checkable: {rule}"
+      );
+    }
   }
 }

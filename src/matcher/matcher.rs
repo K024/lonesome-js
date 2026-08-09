@@ -4,12 +4,12 @@ use pingora::proxy::Session;
 use crate::proxy::ctx::ProxyCtx;
 
 use super::cel_session_context::{ensure_session_cel_context, CelHttpSession};
-use super::precheck::{build, CheapExpr, Tri};
+use super::precheck::{build, CheapExpr, CheckMeta, Tri};
 
 pub struct Matcher {
   source: String,
   program: Program,
-  precheck: Option<CheapExpr<CelHttpSession>>,
+  precheck: Option<CheapExpr<CelHttpSession, CheckMeta>>,
 }
 
 impl Matcher {

@@ -28,15 +28,107 @@ CEL is used in three main places:
 
 ## Static Rule Analysis
 
-`analyzeRule(rule)` statically extracts the `Host`/`Path`/`PathPrefix` string
-literals a matcher rule references, useful for certificate automation (a
-`Host("*.example.com")` pattern lines up with a `*.example.com` wildcard
-certificate).
+`analyzeRule(rule)` statically inspects a matcher CEL rule and returns:
+
+```ts
+interface RuleConstraints {
+  hosts: string[]        // Host("...") literals, `*.example.com` wildcard included
+  paths: string[]        // Path("...") literals
+  pathPrefixes: string[] // PathPrefix("...") literals
+  fullyPrecheckable: boolean
+}
+```
+
+This is useful for certificate automation: `hosts` are the exact hostnames the
+rule can match, and a `Host("*.example.com")` pattern lines up with a
+`*.example.com` wildcard certificate.
 
 Only simple boolean rules are analyzed: `Host`/`Path`/`PathPrefix` literals
 combined with `&&`, `||`, `!`, and the ternary. Complex CEL such as
 `HostRegexp`, comparisons, or member calls (`PathValue().startsWith(...)`) is
 not analyzed — for such rules the caller must handle the semantics itself.
+
+### Soundness (certificate automation)
+
+The extraction is deliberately conservative and must be read as a **lower
+bound**, not the exact host set of the rule. Every `Host` literal is included
+regardless of context — under `!`, inside a ternary branch, or on one side of
+`||` — while negations, conditional structure, and unanalyzable sub-expressions
+(`Header`, comparisons, `HostRegexp`, ...) are ignored. Both directions are
+harmless for provisioning:
+
+- **Over-provisioning is fine**: listing a host that never actually matches
+  (e.g. `!Host("a")` still reports `a`) only wastes a certificate.
+- **Under-provisioning is not allowed**: any host a rule can match is either
+  enumerated (it appears as a `Host` literal) or covered by the caller's
+  wildcard fallback, which must be provisioned whenever the rule contains
+  unanalyzable parts.
+
+So provisioning `hosts` together with a wildcard fallback can never miss a
+certificate the rule actually needs. The cost is that `hosts` is a minimum.
+
+### `fullyPrecheckable`
+
+`fullyPrecheckable` reports whether the internal request fast path (the cheap
+pre-check) can decide the whole expression by itself — i.e. the built pre-check
+tree contains no unknown leaf, so the full CEL program is never consulted.
+
+It is **not** a claim that `hosts` is exact. For example
+`Host("a") ? Path("/x") : PathPrefix("/y")` is fully pre-checkable, yet its
+else branch can match any host, so provisioning only `a` is not sufficient.
+
+## Rule Evaluation (Offline Testing)
+
+`evaluateRule(rule, request)` and `evaluateExpression(expression, request?)`
+run CEL against a synthetic request built from minimal inputs — no proxy and no
+real traffic needed. Both share the same request shape:
+
+```ts
+interface RequestOptions {
+  method: string // e.g. 'GET'
+  path: string   // origin-form, query included: '/api?debug=1'
+  headers?: Array<{ name: string, value: string }>
+}
+```
+
+### `evaluateRule(rule, request)`
+
+Evaluates a matcher rule and returns what the internal fast path would have
+decided plus the real result:
+
+```ts
+{
+  precheck: 'true' | 'false' | 'unknown' // what the route fast path decides
+  matches: boolean                        // actual CEL result
+}
+```
+
+`precheck` is `'true'`/`'false'` when the cheap pre-check decides the rule by
+itself (it then always agrees with `matches`); `'unknown'` means the fast path
+could not handle or fully decide it, so the full CEL program was consulted.
+Compile failures, unknown functions at runtime, and non-boolean results are
+thrown as errors rather than silently treated as no-match.
+
+### `evaluateExpression(expression, request?)`
+
+The general-purpose entry for every non-matcher CEL usage — `body_expression`,
+`set_variable.expression`, `request_headers`/`response_headers.expression`,
+`rewrite`/`redirect` cel modes, `rate_limit` keys, `loadBalancer.hashKeyRule` —
+and a request-context inspector (`HostValue()`, `PathValue()`, `ClientIPValue()`,
+`RequestTime()`, ...). It returns the resulting value as JSON
+(string/number/boolean/list/object/null). `request` is optional: when omitted a
+default session is used (GET `/`, no headers), so session functions see their
+empty defaults. Results with no JSON equivalent (durations, opaque objects) are
+thrown as errors.
+
+### Synthetic request semantics
+
+- `host` comes from a `host` header when provided. Synthetic requests have no
+  TLS, so no SNI; on real TLS traffic the session resolves SNI first, then the
+  `host` header (see [Session Data Semantics](#session-data-semantics)).
+- `path` is percent-decoded and its query is parsed into `Query(...)`/`QueryValue`.
+- Everything else takes its default: empty `ClientIP`, no JWT payload, no
+  upstream response header, `RequestTime` = now.
 
 ## Performance
 

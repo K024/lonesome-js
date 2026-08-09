@@ -83,7 +83,8 @@ impl CertStore {
     self.default.load_full().is_some()
   }
 
-  pub fn remove(&self, host: &str) -> bool {    if host == "*" {
+  pub fn remove(&self, host: &str) -> bool {
+    if host == "*" {
       let was_some = self.default.load_full().is_some();
       self.default.store(None);
       return was_some;
