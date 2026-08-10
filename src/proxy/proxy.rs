@@ -10,7 +10,9 @@ use pingora::proxy::{FailToProxy, ProxyHttp, Session};
 use pingora::upstreams::peer::HttpPeer;
 use pingora::{Error, ErrorType, Result};
 
+use crate::config::SniHostPolicy;
 use crate::matcher::cel_session_context::ensure_session_cel_context;
+use crate::matcher::cel_session_context::hostname_eq;
 use crate::middlewares::middleware::middleware_internal_error;
 use crate::proxy::cache::{build_cache_key, ProxyCacheHandler};
 use crate::proxy::ctx::ProxyCtx;
@@ -19,11 +21,15 @@ use crate::route::{Route, SharedRouteTable};
 #[derive(Clone)]
 pub struct LonesomeProxy {
   routes: SharedRouteTable,
+  sni_host_policy: SniHostPolicy,
 }
 
 impl LonesomeProxy {
-  pub fn new(routes: SharedRouteTable) -> Self {
-    Self { routes }
+  pub fn new(routes: SharedRouteTable, sni_host_policy: SniHostPolicy) -> Self {
+    Self {
+      routes,
+      sni_host_policy,
+    }
   }
 
   fn ensure_ctx_route(&self, session: &Session, ctx: &mut ProxyCtx) -> bool {
@@ -42,6 +48,22 @@ impl LonesomeProxy {
   fn current_cache_handler(ctx: &ProxyCtx) -> Option<Arc<dyn ProxyCacheHandler>> {
     ctx.cache_handler.clone()
   }
+
+  /// Enforces the `sniHostPolicy` gate for strict modes. Returns the HTTP
+  /// status to reject with when the request must be refused:
+  /// - `400` when `:authority` and `Host` are both present but disagree
+  ///   (RFC 9113 §8.3.1 malformed request);
+  /// - `421` when the SNI differs from the HTTP authority (both present).
+  fn sni_host_reject(&self, session: &Session, ctx: &mut ProxyCtx) -> Option<u16> {
+    let cel = ensure_session_cel_context(session, ctx);
+    let cel_session = &cel.cel_http_session;
+    sni_host_policy_reject(
+      self.sni_host_policy,
+      cel_session.sni(),
+      cel_session.http_authority().as_deref(),
+      cel_session.authority_conflict(),
+    )
+  }
 }
 
 #[async_trait]
@@ -49,7 +71,7 @@ impl ProxyHttp for LonesomeProxy {
   type CTX = ProxyCtx;
 
   fn new_ctx(&self) -> Self::CTX {
-    ProxyCtx::new()
+    ProxyCtx::new(self.sni_host_policy)
   }
 
   async fn early_request_filter(&self, session: &mut Session, ctx: &mut Self::CTX) -> Result<()> {
@@ -67,6 +89,11 @@ impl ProxyHttp for LonesomeProxy {
   }
 
   async fn request_filter(&self, session: &mut Session, ctx: &mut Self::CTX) -> Result<bool> {
+    if let Some(status) = self.sni_host_reject(session, ctx) {
+      session.respond_error(status).await?;
+      return Ok(true);
+    }
+
     let Some(route) = Self::current_route(ctx) else {
       return Ok(false);
     };
@@ -194,6 +221,17 @@ impl ProxyHttp for LonesomeProxy {
       middleware
         .upstream_request_filter(ctx, session, upstream_request)
         .await?;
+    }
+
+    // `strict_rewrite_header` forces the authority forwarded to the upstream
+    // (both the `Host` header for the HTTP/1.1 hop and the URI authority for
+    // the HTTP/2 hop) to the TLS SNI, so an upstream doing vhost routing can
+    // never see the mismatched client-supplied value.
+    if self.sni_host_policy == SniHostPolicy::StrictRewriteHeader {
+      let cel = ensure_session_cel_context(session, ctx);
+      if let Some(sni) = cel.cel_http_session.sni() {
+        force_authority(upstream_request, sni);
+      }
     }
 
     Ok(())
@@ -517,5 +555,165 @@ impl ProxyHttp for LonesomeProxy {
         let _ = middleware.logging(ctx, session, e).await;
       }
     }
+  }
+}
+
+/// The pure decision behind [`LonesomeProxy::sni_host_reject`]: which HTTP
+/// status (if any) the `sniHostPolicy` asks to reject the request with.
+fn sni_host_policy_reject(
+  policy: SniHostPolicy,
+  sni: Option<&str>,
+  authority: Option<&str>,
+  authority_conflict: bool,
+) -> Option<u16> {
+  match policy {
+    SniHostPolicy::Strict => {
+      if authority_conflict {
+        return Some(400);
+      }
+      if let (Some(sni), Some(authority)) = (sni, authority) {
+        if !hostname_eq(sni, authority) {
+          return Some(421);
+        }
+      }
+      None
+    }
+    // `strict_rewrite_header` never rejects an SNI/Host mismatch (it rewrites
+    // the forwarded authority instead), but still rejects the RFC 9113
+    // `:authority` vs `Host` protocol conflict.
+    SniHostPolicy::StrictRewriteHeader => {
+      if authority_conflict {
+        return Some(400);
+      }
+      None
+    }
+    SniHostPolicy::LooseBySni | SniHostPolicy::LooseByHeader => None,
+  }
+}
+
+/// Overwrites both authority representations of an upstream request with a
+/// single value: the `Host` header (used for the HTTP/1.1 hop) and the URI
+/// authority (used for the HTTP/2 hop, which pingora prefers over `Host`).
+fn force_authority(req: &mut RequestHeader, authority: &str) {
+  if let Ok(value) = http::header::HeaderValue::from_str(authority) {
+    req.headers.insert(http::header::HOST, value);
+  }
+
+  let uri = http::Uri::builder()
+    .scheme(req.uri.scheme_str().unwrap_or("https"))
+    .authority(authority)
+    .path_and_query(req.uri.path_and_query().map(|p| p.as_str()).unwrap_or("/"))
+    .build();
+  if let Ok(uri) = uri {
+    req.set_uri(uri);
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  fn reject(
+    policy: SniHostPolicy,
+    sni: Option<&str>,
+    authority: Option<&str>,
+    conflict: bool,
+  ) -> Option<u16> {
+    sni_host_policy_reject(policy, sni, authority, conflict)
+  }
+
+  #[test]
+  fn loose_policies_never_reject() {
+    for policy in [SniHostPolicy::LooseBySni, SniHostPolicy::LooseByHeader] {
+      assert_eq!(reject(policy, Some("a.com"), Some("b.com"), true), None);
+      assert_eq!(reject(policy, Some("a.com"), Some("b.com"), false), None);
+    }
+  }
+
+  #[test]
+  fn strict_rejects_sni_authority_mismatch_with_421() {
+    assert_eq!(
+      reject(SniHostPolicy::Strict, Some("a.com"), Some("b.com"), false),
+      Some(421)
+    );
+    // case-insensitive + trailing dot are not a mismatch
+    assert_eq!(
+      reject(SniHostPolicy::Strict, Some("A.com."), Some("a.com"), false),
+      None
+    );
+  }
+
+  #[test]
+  fn strict_rejects_authority_conflict_with_400() {
+    assert_eq!(
+      reject(SniHostPolicy::Strict, None, Some("b.com"), true),
+      Some(400)
+    );
+    // conflict wins over the SNI comparison
+    assert_eq!(
+      reject(SniHostPolicy::Strict, Some("a.com"), Some("b.com"), true),
+      Some(400)
+    );
+  }
+
+  #[test]
+  fn strict_does_not_reject_when_a_side_is_missing() {
+    // no SNI (cleartext or no-SNI TLS): nothing to compare against
+    assert_eq!(
+      reject(SniHostPolicy::Strict, None, Some("a.com"), false),
+      None
+    );
+    // no HTTP authority (e.g. CONNECT without Host): separate malformed path
+    assert_eq!(
+      reject(SniHostPolicy::Strict, Some("a.com"), None, false),
+      None
+    );
+  }
+
+  #[test]
+  fn strict_rewrite_header_rejects_only_protocol_conflict() {
+    // SNI/Host mismatch is rewritten, not rejected
+    assert_eq!(
+      reject(
+        SniHostPolicy::StrictRewriteHeader,
+        Some("a.com"),
+        Some("b.com"),
+        false,
+      ),
+      None
+    );
+    // :authority vs Host disagreement is still a malformed request
+    assert_eq!(
+      reject(
+        SniHostPolicy::StrictRewriteHeader,
+        Some("a.com"),
+        Some("b.com"),
+        true
+      ),
+      Some(400)
+    );
+  }
+
+  #[test]
+  fn force_authority_overwrites_both_representations() {
+    let mut req = RequestHeader::build("GET", b"/x", Some(1)).unwrap();
+    req.insert_header("host", "old.example").unwrap();
+    req.set_uri(
+      http::Uri::builder()
+        .scheme("https")
+        .authority("old.example")
+        .path_and_query("/x")
+        .build()
+        .unwrap(),
+    );
+
+    force_authority(&mut req, "new.example");
+
+    assert_eq!(
+      req.headers.get("host").and_then(|v| v.to_str().ok()),
+      Some("new.example")
+    );
+    assert_eq!(req.uri.authority().map(|a| a.host()), Some("new.example"));
+    assert_eq!(req.uri.path_and_query().map(|p| p.as_str()), Some("/x"));
   }
 }

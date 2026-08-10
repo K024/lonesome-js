@@ -3,6 +3,7 @@ use std::time::Instant;
 
 use pingora::lb::Extensions;
 
+use crate::config::SniHostPolicy;
 use crate::matcher::cel_session_context::SessionCelContext;
 use crate::proxy::cache::ProxyCacheHandler;
 use crate::route::Route;
@@ -17,10 +18,11 @@ pub struct ProxyCtx {
   pub extensions: Extensions,
   /// Set by the access_log middleware at request start; used to compute latency.
   pub access_log_start: Option<Instant>,
+  pub sni_host_policy: SniHostPolicy,
 }
 
 impl ProxyCtx {
-  pub fn new() -> Self {
+  pub fn new(sni_host_policy: SniHostPolicy) -> Self {
     Self {
       route_id: String::new(),
       current_route: None,
@@ -29,6 +31,7 @@ impl ProxyCtx {
       upstream_state: None,
       extensions: Extensions::new(),
       access_log_start: None,
+      sni_host_policy,
     }
   }
 

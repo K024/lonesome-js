@@ -144,7 +144,8 @@ fn cert_names(leaf: &X509) -> Vec<String> {
     }
   }
   for entry in leaf.subject_name().entries_by_nid(Nid::COMMONNAME) {
-    #[allow(deprecated)] // as_utf8 is the correct ASN.1→UTF-8 conversion; NUL truncation is fine for CN matching
+    #[allow(deprecated)]
+    // as_utf8 is the correct ASN.1→UTF-8 conversion; NUL truncation is fine for CN matching
     if let Ok(value) = entry.data().as_utf8() {
       names.push(value.to_string());
     }

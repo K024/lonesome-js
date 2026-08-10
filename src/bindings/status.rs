@@ -12,6 +12,8 @@ pub struct ServerStatus {
   pub route_count: u32,
   pub threads: u32,
   pub work_stealing: bool,
+  #[napi(ts_type = "'loose_by_sni' | 'loose_by_header' | 'strict' | 'strict_rewrite_header'")]
+  pub sni_host_policy: String,
   pub listeners: Vec<ListenerStatus>,
   pub routes: Vec<RouteStatus>,
 }
@@ -59,6 +61,7 @@ impl From<CoreServerStatus> for ServerStatus {
       route_count: value.route_count as u32,
       threads: value.threads as u32,
       work_stealing: value.work_stealing,
+      sni_host_policy: value.sni_host_policy.as_str().to_string(),
       listeners: value.listeners.into_iter().map(Into::into).collect(),
       routes: value.routes.into_iter().map(Into::into).collect(),
     }

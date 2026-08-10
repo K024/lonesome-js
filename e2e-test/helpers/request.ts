@@ -83,6 +83,10 @@ type RawHttpRequestOptions = {
 type RawHttpsRequestOptions = {
   method?: string
   host?: string
+  /** TLS SNI sent during the handshake; defaults to `host`. Set it to agree
+   * with the `Host` header when overriding that header (the server's default
+   * `sniHostPolicy` is `strict`). */
+  servername?: string
   headers?: Record<string, string>
   body?: string | Buffer
   agent?: HttpsAgent
@@ -158,6 +162,7 @@ export async function requestRawHttps(
     const req = httpsRequest(
       {
         host: options?.host ?? '127.0.0.1',
+        servername: options?.servername,
         port,
         path,
         method: options?.method ?? 'GET',

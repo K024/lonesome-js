@@ -97,7 +97,7 @@ is active on a route) passive upstream health. It never measures traffic.
 ```ts
 const st = server.status()
 // {
-//   running, routeCount, threads, workStealing,
+//   running, routeCount, threads, workStealing, sniHostPolicy,
 //   listeners: [{ kind, addr }],
 //   routes: [{ id, rule, priority, loadBalancer, upstreams: [{ kind, address, weight, health? }] }],
 // }
@@ -130,6 +130,47 @@ A TLS listener may also be started **without** `certPath`/`keyPath`; in that cas
 a global default must already have been set via `updateCert('*')`, otherwise
 `start()` throws. See [tls.md](./tls.md).
 
+## SNI / Host Policy
+
+`sniHostPolicy` (startup option, default `'strict'`) controls how the TLS SNI
+and the HTTP-level authority (`:authority` / `Host` header) relate for routing
+and forwarding. A client controls both independently, and a mismatch is the
+mechanism behind domain fronting and upstream vhost confusion.
+
+| value | routing host | on SNI ≠ HTTP authority | on `:authority` ≠ `Host` |
+|---|---|---|---|
+| `loose_by_sni` | SNI, then authority | forwarded verbatim | authority wins |
+| `loose_by_header` | HTTP authority | forwarded verbatim | authority wins |
+| `strict` (default) | HTTP authority | **421 Misdirected Request** | **400** |
+| `strict_rewrite_header` | SNI, then authority | forwarded authority rewritten to SNI | **400** |
+
+Details:
+
+- **`strict`** rejects a request whose SNI differs from its HTTP authority with
+  `421 Misdirected Request`. A request carrying both `:authority` and a `Host`
+  header that disagree is malformed per RFC 9113 §8.3.1 and rejected with
+  `400`. This is the Apache ≥2.4.64 behavior.
+- **`strict_rewrite_header`** keeps the request but forces the authority sent
+  to the upstream (both the `Host` header for the HTTP/1.1 hop and
+  `:authority` for the HTTP/2 hop) to the SNI, so an upstream doing vhost
+  routing can never see a mismatched value (nginx
+  `proxy_set_header Host $ssl_server_name` style).
+- **`loose_by_sni`** is the historical behavior. **`loose_by_header`** routes
+  purely on the HTTP authority (Caddy/Envoy style).
+- Hostnames are compared case-insensitively with any trailing dot ignored.
+  When both `:authority` and `Host` are present, `:authority` determines the
+  target URI per RFC 9113.
+- The routing host is also what `Host()` / `HostValue()` see in CEL. The raw
+  inputs are available as `SniValue()` and `AuthorityValue()`; see
+  [cel.md](./cel.md).
+
+```ts
+server.start({
+  listeners: [{ kind: 'tls', addr: '127.0.0.1:443', certPath, keyPath }],
+  sniHostPolicy: 'strict_rewrite_header',
+})
+```
+
 ## Type References
 
 ```ts
@@ -137,6 +178,9 @@ interface StartupConfig {
   threads?: number
   workStealing?: boolean
   listeners: StartupListenerConfig[]
+  // How TLS SNI and the HTTP authority (:authority / Host header) relate.
+  // Default 'strict'. See "SNI / Host Policy" above.
+  sniHostPolicy?: 'loose_by_sni' | 'loose_by_header' | 'strict' | 'strict_rewrite_header'
 }
 
 interface StartupListenerConfig {
@@ -160,6 +204,7 @@ interface ServerStatus {
   routeCount: number
   threads: number
   workStealing: boolean
+  sniHostPolicy: 'loose_by_sni' | 'loose_by_header' | 'strict' | 'strict_rewrite_header'
   listeners: Array<{ kind: string; addr: string }>
   routes: Array<{
     id: string

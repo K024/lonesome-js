@@ -1,3 +1,5 @@
+use crate::config::SniHostPolicy;
+
 /// Read-only status snapshot of the proxy runtime.
 ///
 /// This deliberately contains no measurements: no request counters, latency or
@@ -11,6 +13,7 @@ pub struct ServerStatus {
   pub route_count: usize,
   pub threads: usize,
   pub work_stealing: bool,
+  pub sni_host_policy: SniHostPolicy,
   pub listeners: Vec<ListenerStatus>,
   pub routes: Vec<RouteStatus>,
 }

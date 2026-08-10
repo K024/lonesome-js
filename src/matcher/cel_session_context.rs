@@ -11,6 +11,7 @@ use pingora::protocols::l4::socket::SocketAddr;
 use pingora::proxy::Session;
 use serde_json::Value as JsonValue;
 
+use crate::config::SniHostPolicy;
 use crate::proxy::ctx::ProxyCtx;
 use crate::server::tls_callbacks::DownstreamTlsInfo;
 
@@ -19,6 +20,13 @@ use super::precheck::Source;
 
 const CEL_HTTP_SESSION_KEY: &str = "_cel_http_session";
 
+/// Compares two hostnames as the DNS/TLS host comparison does: ASCII
+/// case-insensitive with any trailing dot ignored. Ports are not expected.
+pub fn hostname_eq(a: &str, b: &str) -> bool {
+  a.trim_end_matches('.')
+    .eq_ignore_ascii_case(b.trim_end_matches('.'))
+}
+
 #[derive(Debug)]
 pub struct CelHttpSession {
   req_header: RequestHeader,
@@ -26,6 +34,7 @@ pub struct CelHttpSession {
   jwt_payload: RwLock<Option<JwtPayload>>,
   client_addr: Option<SocketAddr>,
   tls_sni: Option<String>,
+  sni_host_policy: SniHostPolicy,
   request_time: DateTime<FixedOffset>,
   host: OnceLock<String>,
   path: OnceLock<String>,
@@ -49,7 +58,7 @@ impl OpaqueEq for CelHttpSession {
 }
 
 impl CelHttpSession {
-  pub fn from_session(session: &Session) -> Self {
+  pub fn from_session(session: &Session, sni_host_policy: SniHostPolicy) -> Self {
     let tls_sni = session
       .as_downstream()
       .digest()
@@ -64,6 +73,7 @@ impl CelHttpSession {
       jwt_payload: RwLock::new(None),
       client_addr: session.as_downstream().client_addr().cloned(),
       tls_sni,
+      sni_host_policy,
       request_time: chrono::Utc::now().fixed_offset(),
       host: OnceLock::new(),
       path: OnceLock::new(),
@@ -108,28 +118,57 @@ impl CelHttpSession {
     self.client_addr.as_ref()
   }
 
+  /// The TLS SNI offered during the handshake, when present (and non-empty).
+  /// `None` for cleartext listeners and clients that do not send SNI.
+  pub fn sni(&self) -> Option<&str> {
+    self.tls_sni.as_deref().filter(|s| !s.is_empty())
+  }
+
+  /// The HTTP-level authority: the `:authority` (URI authority) when present,
+  /// otherwise the `Host` header, each with the port stripped. `None` when
+  /// neither exists (e.g. a malformed request).
+  pub fn http_authority(&self) -> Option<String> {
+    self.authority_sources().0.or(self.authority_sources().1)
+  }
+
+  /// True when the request carries both an `:authority` and a `Host` header
+  /// that identify different entities. Per RFC 9113 §8.3.1 this is a malformed
+  /// request; when both are present the `:authority` must be used to determine
+  /// the target.
+  pub fn authority_conflict(&self) -> bool {
+    let (authority, host_header) = self.authority_sources();
+    match (authority, host_header) {
+      (Some(a), Some(h)) => !hostname_eq(&a, &h),
+      _ => false,
+    }
+  }
+
+  fn authority_sources(&self) -> (Option<String>, Option<String>) {
+    let authority = self
+      .req_header
+      .uri
+      .authority()
+      .map(|a| a.host().to_string());
+    let host_header = self
+      .req_header
+      .headers
+      .get("host")
+      .and_then(|v| v.to_str().ok())
+      .map(|h| h.split(':').next().unwrap_or(h).trim().to_string());
+    (authority, host_header)
+  }
+
   pub fn host(&self) -> &str {
     self.host.get_or_init(|| {
-      if let Some(sni) = &self.tls_sni {
-        if !sni.is_empty() {
-          return sni.clone();
-        }
+      let authority = self.http_authority();
+      match self.sni_host_policy {
+        SniHostPolicy::LooseBySni | SniHostPolicy::StrictRewriteHeader => self
+          .sni()
+          .map(ToOwned::to_owned)
+          .or(authority)
+          .unwrap_or_default(),
+        SniHostPolicy::LooseByHeader | SniHostPolicy::Strict => authority.unwrap_or_default(),
       }
-
-      self
-        .req_header
-        .headers
-        .get("host")
-        .and_then(|v| v.to_str().ok())
-        .map(|h| h.split(':').next().unwrap_or(h).to_string())
-        .or_else(|| {
-          self
-            .req_header
-            .uri
-            .authority()
-            .map(|a| a.host().to_string())
-        })
-        .unwrap_or_default()
     })
   }
 
@@ -220,6 +259,7 @@ impl CelHttpSession {
       jwt_payload: RwLock::new(None),
       client_addr: None,
       tls_sni: None,
+      sni_host_policy: SniHostPolicy::default(),
       request_time: chrono::Utc::now().fixed_offset(),
       host: OnceLock::new(),
       path: OnceLock::new(),
@@ -247,8 +287,11 @@ pub struct SessionCelContext {
   pub cel_http_session: Arc<CelHttpSession>,
 }
 
-fn read_session_cel_context(session: &Session) -> SessionCelContext {
-  let cel_session = Arc::new(CelHttpSession::from_session(session));
+fn read_session_cel_context(
+  session: &Session,
+  sni_host_policy: SniHostPolicy,
+) -> SessionCelContext {
+  let cel_session = Arc::new(CelHttpSession::from_session(session, sni_host_policy));
 
   let mut cel_ctx = parent_context().new_inner_scope();
   cel_ctx.add_variable_from_value(
@@ -277,7 +320,8 @@ pub fn ensure_session_cel_context<'a>(
   proxy_ctx: &'a mut ProxyCtx,
 ) -> &'a SessionCelContext {
   if proxy_ctx.session_cel_context.is_none() {
-    proxy_ctx.session_cel_context = Some(read_session_cel_context(session));
+    let policy = proxy_ctx.sni_host_policy;
+    proxy_ctx.session_cel_context = Some(read_session_cel_context(session, policy));
   }
 
   proxy_ctx
@@ -296,7 +340,8 @@ pub fn ensure_context_mut<'a>(
   proxy_ctx: &'a mut ProxyCtx,
 ) -> &'a mut Context<'static> {
   if proxy_ctx.session_cel_context.is_none() {
-    proxy_ctx.session_cel_context = Some(read_session_cel_context(session));
+    let policy = proxy_ctx.sni_host_policy;
+    proxy_ctx.session_cel_context = Some(read_session_cel_context(session, policy));
   }
 
   proxy_ctx
@@ -305,4 +350,135 @@ pub fn ensure_context_mut<'a>(
     .expect("session cel context initialized")
     .cel_ctx
     .as_mut()
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::config::SniHostPolicy;
+
+  fn test_session(
+    tls_sni: Option<&str>,
+    host_header: Option<&str>,
+    authority: Option<&str>,
+    policy: SniHostPolicy,
+  ) -> CelHttpSession {
+    let mut req_header = RequestHeader::build("GET", b"/", Some(1)).unwrap();
+    if let Some(host) = host_header {
+      req_header.insert_header("host", host).unwrap();
+    }
+    if let Some(authority) = authority {
+      let uri = http::Uri::builder()
+        .scheme("https")
+        .authority(authority)
+        .path_and_query("/")
+        .build()
+        .unwrap();
+      req_header.set_uri(uri);
+    }
+    CelHttpSession {
+      req_header,
+      upstream_res_header: RwLock::new(None),
+      jwt_payload: RwLock::new(None),
+      client_addr: None,
+      tls_sni: tls_sni.map(ToOwned::to_owned),
+      sni_host_policy: policy,
+      request_time: chrono::Utc::now().fixed_offset(),
+      host: OnceLock::new(),
+      path: OnceLock::new(),
+      client_ip: OnceLock::new(),
+      query_pairs: OnceLock::new(),
+    }
+  }
+
+  #[test]
+  fn hostname_eq_is_case_insensitive_and_ignores_trailing_dot() {
+    assert!(hostname_eq("Example.com", "example.com"));
+    assert!(hostname_eq("a.example.com.", "A.EXAMPLE.com"));
+    assert!(!hostname_eq("a.example.com", "example.com"));
+    assert!(!hostname_eq("example.com", "example.org"));
+  }
+
+  #[test]
+  fn host_priority_follows_policy() {
+    // SNI and Host header disagree; the policy decides what routing sees.
+    let policies = [
+      (SniHostPolicy::LooseBySni, "sni.example"),
+      (SniHostPolicy::StrictRewriteHeader, "sni.example"),
+      (SniHostPolicy::LooseByHeader, "host.example"),
+      (SniHostPolicy::Strict, "host.example"),
+    ];
+    for (policy, expected) in policies {
+      let s = test_session(Some("sni.example"), Some("host.example"), None, policy);
+      assert_eq!(s.host(), expected, "policy {policy:?}");
+    }
+  }
+
+  #[test]
+  fn host_falls_back_to_authority_without_sni() {
+    for policy in [
+      SniHostPolicy::LooseBySni,
+      SniHostPolicy::LooseByHeader,
+      SniHostPolicy::Strict,
+      SniHostPolicy::StrictRewriteHeader,
+    ] {
+      let s = test_session(None, Some("fallback.example"), None, policy);
+      assert_eq!(s.host(), "fallback.example", "policy {policy:?}");
+    }
+  }
+
+  #[test]
+  fn empty_sni_is_treated_as_absent() {
+    let s = test_session(
+      Some(""),
+      Some("host.example"),
+      None,
+      SniHostPolicy::LooseBySni,
+    );
+    assert_eq!(s.host(), "host.example");
+    assert_eq!(s.sni(), None);
+  }
+
+  #[test]
+  fn http_authority_prefers_authority_over_host_header() {
+    let s = test_session(
+      None,
+      Some("host.example:8443"),
+      Some("authority.example:443"),
+      SniHostPolicy::LooseByHeader,
+    );
+    assert_eq!(s.http_authority().as_deref(), Some("authority.example"));
+    assert!(s.authority_conflict());
+  }
+
+  #[test]
+  fn authority_conflict_detects_disagreement_only() {
+    let conflicting = test_session(
+      None,
+      Some("a.example"),
+      Some("b.example"),
+      SniHostPolicy::Strict,
+    );
+    assert!(conflicting.authority_conflict());
+
+    let agreeing = test_session(
+      None,
+      Some("a.example:8080"),
+      Some("A.example"),
+      SniHostPolicy::Strict,
+    );
+    assert!(!agreeing.authority_conflict());
+    // `:authority` wins and keeps its raw casing; comparison is normalized.
+    assert_eq!(agreeing.http_authority().as_deref(), Some("A.example"));
+
+    let host_only = test_session(None, Some("a.example"), None, SniHostPolicy::Strict);
+    assert!(!host_only.authority_conflict());
+    assert_eq!(host_only.http_authority().as_deref(), Some("a.example"));
+  }
+
+  #[test]
+  fn host_strips_port_from_host_header() {
+    let s = test_session(None, Some("example.com:8080"), None, SniHostPolicy::Strict);
+    assert_eq!(s.host(), "example.com");
+  }
 }

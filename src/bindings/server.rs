@@ -126,7 +126,7 @@ impl LonesomeServer {
     let running = guard.as_ref().is_some_and(LonesomeRuntime::is_running);
     let route_count = self.routes.route_count() as u32;
 
-    let (threads, work_stealing, listeners) = match guard.as_ref() {
+    let (threads, work_stealing, listeners, sni_host_policy) = match guard.as_ref() {
       Some(rt) => {
         let startup = rt.startup();
         let listeners = startup
@@ -138,9 +138,10 @@ impl LonesomeServer {
           startup.threads.unwrap_or(0) as u32,
           startup.work_stealing.unwrap_or(false),
           listeners,
+          startup.sni_host_policy,
         )
       }
-      None => (0, false, Vec::new()),
+      None => (0, false, Vec::new(), Default::default()),
     };
 
     let routes = self
@@ -161,6 +162,7 @@ impl LonesomeServer {
       route_count: route_count as usize,
       threads: threads as usize,
       work_stealing,
+      sni_host_policy,
       listeners,
       routes,
     };

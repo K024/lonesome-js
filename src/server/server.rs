@@ -61,7 +61,10 @@ impl LonesomeRuntime {
         let mut server = Server::new_with_opt_and_conf(None, conf);
         server.bootstrap();
 
-        let mut service = http_proxy_service(&server.configuration, LonesomeProxy::new(routes));
+        let mut service = http_proxy_service(
+          &server.configuration,
+          LonesomeProxy::new(routes, startup_for_thread.sni_host_policy),
+        );
 
         for listener in startup_for_thread.listeners {
           match listener {

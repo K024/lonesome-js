@@ -16,11 +16,47 @@ pub enum StartupListenerConfig {
   },
 }
 
+/// How the TLS SNI (when present) relates to the HTTP-level authority
+/// (`:authority` / `Host` header) for routing and forwarding.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SniHostPolicy {
+  /// Routing and matching use SNI first (then HTTP authority); the HTTP
+  /// authority is forwarded to the upstream verbatim. This is the historical
+  /// behavior. A mismatched SNI/Host can reach the upstream unchanged.
+  LooseBySni,
+  /// Routing and matching use the HTTP authority only (`:authority`, then the
+  /// `Host` header); SNI is used solely for certificate selection.
+  LooseByHeader,
+  /// Routing and matching use the HTTP authority; a request whose SNI differs
+  /// from the HTTP authority (both present) is rejected with 421 Misdirected
+  /// Request. When both `:authority` and `Host` are present but disagree, the
+  /// request is malformed (RFC 9113 §8.3.1) and rejected with 400.
+  #[default]
+  Strict,
+  /// Routing and matching use SNI first (then HTTP authority); when an SNI is
+  /// present the authority forwarded to the upstream (`Host` header and
+  /// `:authority`) is rewritten to the SNI, preventing upstream vhost
+  /// confusion without rejecting the request.
+  StrictRewriteHeader,
+}
+
+impl SniHostPolicy {
+  pub fn as_str(&self) -> &'static str {
+    match self {
+      SniHostPolicy::LooseBySni => "loose_by_sni",
+      SniHostPolicy::LooseByHeader => "loose_by_header",
+      SniHostPolicy::Strict => "strict",
+      SniHostPolicy::StrictRewriteHeader => "strict_rewrite_header",
+    }
+  }
+}
+
 #[derive(Clone, Debug)]
 pub struct StartupConfig {
   pub threads: Option<usize>,
   pub work_stealing: Option<bool>,
   pub listeners: Vec<StartupListenerConfig>,
+  pub sni_host_policy: SniHostPolicy,
 }
 
 impl StartupConfig {

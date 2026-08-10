@@ -374,10 +374,10 @@ mod tests {
     let a = synthetic_backend_addr(&unix("/tmp/a.sock")).unwrap();
     let b = synthetic_backend_addr(&unix("/tmp/a.sock")).unwrap();
     assert_eq!(a, b);
-    assert_doc_prefix(a);
 
     let c = synthetic_backend_addr(&unix("/tmp/b.sock")).unwrap();
     assert_ne!(a, c);
+    assert_doc_prefix(a);
   }
 
   #[cfg(unix)]

@@ -124,8 +124,8 @@ thrown as errors.
 ### Synthetic request semantics
 
 - `host` comes from a `host` header when provided. Synthetic requests have no
-  TLS, so no SNI; on real TLS traffic the session resolves SNI first, then the
-  `host` header (see [Session Data Semantics](#session-data-semantics)).
+  TLS, so no SNI; `HostValue()` resolves to the HTTP authority
+  (see [Session Data Semantics](#session-data-semantics)).
 - `path` is percent-decoded and its query is parsed into `Query(...)`/`QueryValue`.
 - Everything else takes its default: empty `ClientIP`, no JWT payload, no
   upstream response header, `RequestTime` = now.
@@ -172,6 +172,8 @@ not. Use `HostRegexp` for more complex host matching.
 ### Value functions
 
 - `HostValue()`
+- `SniValue()`
+- `AuthorityValue()`
 - `MethodValue()`
 - `PathValue()`
 - `HeaderValue(name)`
@@ -192,12 +194,33 @@ These are useful in upstream-response and response stages (for example with `set
 
 ### `HostValue()` priority
 
-Host resolution is:
+`HostValue()` follows the configured `sniHostPolicy` (see
+[readme.md](./readme.md#sni-host-policy)):
 
-1. TLS SNI (if available)
-2. Request `Host` header (port removed)
-3. URI authority host
-4. Empty string
+- `loose_by_sni` / `strict_rewrite_header`: TLS SNI first, then HTTP
+  authority.
+- `loose_by_header` / `strict`: HTTP authority only.
+
+The HTTP authority is the `:authority` pseudo-header (HTTP/2) when present,
+otherwise the request `Host` header, with the port removed.
+
+### `SniValue()` and `AuthorityValue()`
+
+These expose the raw inputs *before* the policy is applied, so you can write
+your own mismatch rules:
+
+- `SniValue()` — the TLS SNI offered during the handshake; empty string on a
+  cleartext listener or when the client sent no SNI.
+- `AuthorityValue()` — the HTTP-level authority (`:authority`, then `Host`),
+  port stripped; empty string when neither is present.
+
+For example, a route-level check equivalent to the `strict` startup policy:
+
+```ts
+matcher: {
+  rule: "SniValue() == '' || AuthorityValue() == '' || SniValue() == AuthorityValue()",
+}
+```
 
 ### `PathValue()` decoding
 

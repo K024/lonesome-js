@@ -126,6 +126,7 @@ conditionalDescribe('middleware: redirect_https over tls listener', skipWithoutO
     it('redirects HTTPS requests to HTTP with configured port', async () => {
       const { response, body } = await requestRawHttps(tlsPort, '/redirhttps/to-http/page?x=1', {
         agent: insecureAgent,
+        servername: 'secure.local',
         headers: { host: 'secure.local:9443' },
       })
 
@@ -149,6 +150,7 @@ conditionalDescribe('middleware: redirect_https over tls listener', skipWithoutO
         '/redirhttps/to-http-default/page?y=2',
         {
           agent: insecureAgent,
+          servername: 'secure.local',
           headers: { host: 'secure.local:9443' },
         },
       )

@@ -57,14 +57,35 @@ function cargoCacheArchive() {
   return null
 }
 
-async function downloadArchive() {
+function copyArchive(source) {
   mkdirSync(cacheDirectory, { recursive: true })
-  const response = await fetch(
-    `https://static.crates.io/crates/${crate.name}/${archiveName}`,
-  )
-  if (!response.ok) {
-    throw new Error(`failed to download ${archiveName}: HTTP ${response.status}`)
+  if (resolve(source) !== downloadedArchive) {
+    cpSync(source, downloadedArchive)
   }
+  return downloadedArchive
+}
+
+async function downloadArchive() {
+  let response
+  try {
+    response = await fetch(
+      `https://static.crates.io/crates/${crate.name}/${archiveName}`,
+    )
+  } catch (error) {
+    throw new Error(
+      `failed to download ${archiveName}: ${error.message}. ` +
+      'If you are behind a proxy, set NODE_USE_ENV_PROXY=1 and HTTPS_PROXY.',
+      { cause: error }
+    )
+  }
+  if (!response.ok) {
+    throw new Error(
+      `failed to download ${archiveName}: HTTP ${response.status}. ` +
+      'If you are behind a proxy, set NODE_USE_ENV_PROXY=1 and HTTPS_PROXY.',
+      { cause: response }
+    )
+  }
+  mkdirSync(cacheDirectory, { recursive: true })
   writeFileSync(downloadedArchive, Buffer.from(await response.arrayBuffer()))
   return downloadedArchive
 }
@@ -73,9 +94,11 @@ if (!existsSync(patch)) {
   throw new Error(`missing dependency patch: ${patch}`)
 }
 
-let archive = cargoCacheArchive()
-if (!archive) {
-  archive = existsSync(downloadedArchive) ? downloadedArchive : await downloadArchive()
+let archive = existsSync(downloadedArchive) ? downloadedArchive : cargoCacheArchive()
+if (archive) {
+  archive = copyArchive(archive)
+} else {
+  archive = await downloadArchive()
 }
 
 const archiveSha256 = sha256(archive)

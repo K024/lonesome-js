@@ -139,6 +139,19 @@ fn host_value(ftx: &FunctionContext) -> String {
   with_session(ftx, |s| s.host().to_string()).unwrap_or_default()
 }
 
+/// The TLS SNI offered during the handshake, or an empty string when absent
+/// (cleartext listener or a client that did not send SNI).
+fn sni_value(ftx: &FunctionContext) -> String {
+  with_session(ftx, |s| s.sni().map(ToOwned::to_owned).unwrap_or_default()).unwrap_or_default()
+}
+
+/// The raw HTTP-level authority (`:authority`, then the `Host` header), with
+/// the port stripped. Unlike `HostValue()`, this ignores the `sniHostPolicy`
+/// routing preference and always reports what the HTTP layer carried.
+fn authority_value(ftx: &FunctionContext) -> String {
+  with_session(ftx, |s| s.http_authority().unwrap_or_default()).unwrap_or_default()
+}
+
 fn method_value(ftx: &FunctionContext) -> String {
   with_session(ftx, |s| s.method().to_string()).unwrap_or_default()
 }
@@ -251,6 +264,8 @@ pub fn parent_context() -> &'static Context<'static> {
     // TODO: update getters to return Option<T>
     ctx.add_function("HeaderValue", header_value);
     ctx.add_function("HostValue", host_value);
+    ctx.add_function("SniValue", sni_value);
+    ctx.add_function("AuthorityValue", authority_value);
     ctx.add_function("MethodValue", method_value);
     ctx.add_function("PathValue", path_value);
     ctx.add_function("QueryValue", query_value);
