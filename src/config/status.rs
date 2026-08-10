@@ -1,5 +1,30 @@
 use crate::config::SniHostPolicy;
 
+/// Lifecycle state of a `LonesomeServer` instance.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ServerState {
+  /// Never started.
+  #[default]
+  Idle,
+  /// Started and serving.
+  Running,
+  /// Graceful shutdown in progress (signal sent, waiting for the server to drain).
+  Stopping,
+  /// Was started and has been stopped.
+  Stopped,
+}
+
+impl ServerState {
+  pub fn as_str(&self) -> &'static str {
+    match self {
+      ServerState::Idle => "idle",
+      ServerState::Running => "running",
+      ServerState::Stopping => "stopping",
+      ServerState::Stopped => "stopped",
+    }
+  }
+}
+
 /// Read-only status snapshot of the proxy runtime.
 ///
 /// This deliberately contains no measurements: no request counters, latency or
@@ -10,6 +35,7 @@ use crate::config::SniHostPolicy;
 #[derive(Clone, Debug)]
 pub struct ServerStatus {
   pub running: bool,
+  pub state: ServerState,
   pub route_count: usize,
   pub threads: usize,
   pub work_stealing: bool,

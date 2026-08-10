@@ -16,6 +16,7 @@ logging to the same file) never interleave lines.
   config: {
     format?: 'text' | 'json',  // default: 'text'
     file: string,              // required
+    ext?: string,              // optional CEL expression
   },
 }
 ```
@@ -24,6 +25,10 @@ logging to the same file) never interleave lines.
   is a JSON object per line.
 - `file`: absolute or relative path to append to. The file is created if it
   does not exist. Required.
+- `ext`: optional CEL expression evaluated per request; its scalar result is
+  included in every line as the `ext` field. Empty string when absent or when
+  evaluation fails. The full request context is available (`MethodValue()`,
+  `PathValue()`, `HostValue()`, `HeaderValue(...)`, `TraceIdValue()`, ...).
 
 ## Example
 
@@ -32,7 +37,14 @@ server.addOrUpdate({
   id: 'audited',
   matcher: { rule: "PathPrefix('/api')", priority: 50 },
   middlewares: [
-    { type: 'access_log', config: { format: 'json', file: '/var/log/lonesome/access.log' } },
+    {
+      type: 'access_log',
+      config: {
+        format: 'json',
+        file: '/var/log/lonesome/access.log',
+        ext: "'user=' + HeaderValue('x-user') + '|trace=' + TraceIdValue()",
+      },
+    },
   ],
   upstreams: [{ kind: 'tcp', address: '127.0.0.1:9000' }],
 })
@@ -45,6 +57,7 @@ server.addOrUpdate({
 - response status
 - latency in ms
 - selected upstream address
+- `ext`, when an `ext` expression is configured
 - error, when the request failed
 
 ## Notes

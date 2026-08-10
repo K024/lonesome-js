@@ -47,6 +47,7 @@ describe('server status reflection', () => {
     const fresh = new LonesomeServer()
     const st = fresh.status()
     assert.strictEqual(st.running, false)
+    assert.strictEqual(st.state, 'idle')
     assert.strictEqual(st.routeCount, 0)
     assert.strictEqual(st.threads, 0)
     assert.strictEqual(st.workStealing, false)
@@ -57,6 +58,7 @@ describe('server status reflection', () => {
   it('reflects runtime config: running, threads, workStealing, listeners', () => {
     const st = server.status()
     assert.strictEqual(st.running, true)
+    assert.strictEqual(st.state, 'running')
     assert.strictEqual(st.threads, 2)
     assert.strictEqual(st.workStealing, true)
     assert.strictEqual(st.listeners.length, 2)
@@ -68,6 +70,73 @@ describe('server status reflection', () => {
       st.listeners.map((l) => l.addr),
       [`127.0.0.1:${portA}`, `127.0.0.1:${portB}`],
     )
+  })
+
+  it('reports state stopping during shutdown and stopped after', async () => {
+    const s = new LonesomeServer()
+    const p = await pickFreePort()
+    s.start({ listeners: [{ kind: 'tcp', addr: `127.0.0.1:${p}` }] })
+    await sleep(600)
+    assert.strictEqual(s.status().state, 'running')
+
+    const stopPromise = s.stop()
+    // stop() is async: the JS thread stays free, so the stopping phase is
+    // observable while the server drains.
+    const deadline = Date.now() + 1500
+    while (Date.now() < deadline && s.status().state !== 'stopping') {
+      await sleep(10)
+    }
+    assert.strictEqual(s.status().state, 'stopping')
+
+    await stopPromise
+    assert.strictEqual(s.status().running, false)
+    assert.strictEqual(s.status().state, 'stopped')
+  })
+
+  it('rejects a duplicate start while running', async () => {
+    const s = new LonesomeServer()
+    const p = await pickFreePort()
+    s.start({ listeners: [{ kind: 'tcp', addr: `127.0.0.1:${p}` }] })
+    await sleep(600)
+    assert.throws(
+      () => s.start({ listeners: [{ kind: 'tcp', addr: `127.0.0.1:${p}` }] }),
+      /already started/,
+    )
+    await s.stop()
+  })
+
+  it('rejects start while stopping', async () => {
+    const s = new LonesomeServer()
+    const p = await pickFreePort()
+    s.start({ listeners: [{ kind: 'tcp', addr: `127.0.0.1:${p}` }] })
+    await sleep(600)
+
+    const stopPromise = s.stop()
+    // wait until the stopping phase is observable, then start must be rejected
+    const deadline = Date.now() + 1500
+    while (Date.now() < deadline && s.status().state !== 'stopping') {
+      await sleep(10)
+    }
+    assert.strictEqual(s.status().state, 'stopping')
+    assert.throws(
+      () => s.start({ listeners: [{ kind: 'tcp', addr: `127.0.0.1:${p}` }] }),
+      /stopping/,
+    )
+    await stopPromise
+  })
+
+  it('allows restart after a clean stop', async () => {
+    const s = new LonesomeServer()
+    const p = await pickFreePort()
+    s.start({ listeners: [{ kind: 'tcp', addr: `127.0.0.1:${p}` }] })
+    await sleep(600)
+    await s.stop()
+    assert.strictEqual(s.status().state, 'stopped')
+
+    s.start({ listeners: [{ kind: 'tcp', addr: `127.0.0.1:${p}` }] })
+    await sleep(600)
+    assert.strictEqual(s.status().state, 'running')
+    await s.stop()
   })
 
   it('reflects registered routes and upstreams without health tracking by default', () => {

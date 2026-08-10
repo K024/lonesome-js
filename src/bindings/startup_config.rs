@@ -13,6 +13,13 @@ pub struct StartupConfig {
   pub listeners: Vec<StartupListenerConfig>,
   #[napi(ts_type = "'loose_by_sni' | 'loose_by_header' | 'strict' | 'strict_rewrite_header'")]
   pub sni_host_policy: Option<String>,
+  pub downstream_read_timeout_ms: Option<u32>,
+  pub downstream_write_timeout_ms: Option<u32>,
+  pub grace_period_seconds: Option<u32>,
+  pub graceful_shutdown_timeout_seconds: Option<u32>,
+  pub upstream_keepalive_pool_size: Option<u32>,
+  pub max_retries: Option<u32>,
+  pub enable_h2c_downstream: Option<bool>,
 }
 
 #[napi(object)]
@@ -62,6 +69,13 @@ impl TryFrom<StartupConfig> for CoreStartupConfig {
       work_stealing: value.work_stealing,
       listeners,
       sni_host_policy,
+      downstream_read_timeout_ms: value.downstream_read_timeout_ms.map(u64::from),
+      downstream_write_timeout_ms: value.downstream_write_timeout_ms.map(u64::from),
+      grace_period_seconds: value.grace_period_seconds.map(u64::from),
+      graceful_shutdown_timeout_seconds: value.graceful_shutdown_timeout_seconds.map(u64::from),
+      upstream_keepalive_pool_size: value.upstream_keepalive_pool_size.map(|v| v as usize),
+      max_retries: value.max_retries.map(|v| v as usize),
+      enable_h2c_downstream: value.enable_h2c_downstream,
     })
   }
 }

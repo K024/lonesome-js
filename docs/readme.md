@@ -34,18 +34,25 @@ server.start({
 Notes:
 - Must be called before route traffic handling.
 - Listener definitions come from `StartupConfig.listeners`.
+- Throws if the server is already running (`'already started'`) or currently
+  stopping (`'is stopping'`). Starting again after a clean `await stop()` is
+  allowed.
 
 ### `stop()`
 
-Stops the running proxy service.
+Gracefully stops the running proxy service. **Async**: returns a promise that
+resolves once shutdown completes; the JS thread is never blocked.
 
 ```ts
-server.stop()
+await server.stop()
 ```
 
 Notes:
-- Safe to call during controlled shutdown.
-- Existing in-flight request behavior depends on runtime state and transport lifecycle.
+- Sends a graceful-terminate signal and waits for the server thread to drain
+  (`gracePeriodSeconds` + `gracefulShutdownTimeoutSeconds`).
+- `status().state` is `'stopping'` while draining and `'stopped'` afterwards,
+  so the JS controller can keep serving health checks during shutdown.
+- No-op when the server is not running.
 
 ### `validate(route)`
 
@@ -99,11 +106,19 @@ is active on a route) passive upstream health. It never measures traffic.
 ```ts
 const st = server.status()
 // {
-//   running, routeCount, threads, workStealing, sniHostPolicy, errorPageCount,
+//   running, state: 'idle' | 'running' | 'stopping' | 'stopped',
+//   routeCount, threads, workStealing, sniHostPolicy, errorPageCount,
 //   listeners: [{ kind, addr }],
 //   routes: [{ id, rule, priority, loadBalancer, upstreams: [{ kind, address, weight, health? }] }],
 // }
 ```
+
+`state` is the lifecycle state: `idle` (never started), `running`, `stopping`
+(graceful shutdown in progress after `stop()`), or `stopped`. `stop()` is async
+and returns only after graceful shutdown completes
+(~`gracePeriodSeconds` + `gracefulShutdownTimeoutSeconds`), after which `state`
+is `'stopped'`; the JS thread is never blocked, so `status()` remains callable
+during shutdown.
 
 See [tls.md](./tls.md) for dynamic TLS certificates and the cert-less listener.
 
@@ -173,6 +188,23 @@ server.start({
 })
 ```
 
+Notes:
+- `downstreamReadTimeoutMs` / `downstreamWriteTimeoutMs` are set on the
+  downstream connection per request; enforcement during body reads / writes is
+  handled by pingora.
+- `gracePeriodSeconds` / `gracefulShutdownTimeoutSeconds`, `upstreamKeepalivePoolSize`,
+  `maxRetries` and `enableH2cDownstream` are pingora-native settings forwarded
+  to the pingora `ServerConf` / HTTP server as-is (h2c enables HTTP/2
+  prior-knowledge on plaintext TCP listeners).
+
+## Protocol passthrough
+
+- **HTTP/2 + trailers (gRPC)**: forwarded end-to-end without special handling —
+  the proxy bridges downstream h2 to an upstream h2c/h2 hop and passes trailers
+  (e.g. `grpc-status`) through. Verified by `e2e-test/06-grpc-trailers.test.ts`.
+- **Upgrade / WebSocket**: pingora handles the upgrade internally and the
+  connection is tunneled as-is; no middleware hooks are provided.
+
 ## Error Pages
 
 `updateErrorPage` / `removeErrorPage` control the responses served for
@@ -224,6 +256,18 @@ interface StartupConfig {
   // How TLS SNI and the HTTP authority (:authority / Host header) relate.
   // Default 'strict'. See "SNI / Host Policy" above.
   sniHostPolicy?: 'loose_by_sni' | 'loose_by_header' | 'strict' | 'strict_rewrite_header'
+  // Per-connection read/write timeouts on the downstream (client) side.
+  downstreamReadTimeoutMs?: number
+  downstreamWriteTimeoutMs?: number
+  // Graceful shutdown windows (seconds). Defaults 0 / 1.
+  gracePeriodSeconds?: number
+  gracefulShutdownTimeoutSeconds?: number
+  // Upstream keepalive connection pool size. Default 128.
+  upstreamKeepalivePoolSize?: number
+  // Fail-safe cap on upstream retries. Default 16.
+  maxRetries?: number
+  // Serve HTTP/2 prior-knowledge (h2c) on plaintext TCP listeners. Default false.
+  enableH2cDownstream?: boolean
 }
 
 interface StartupListenerConfig {
@@ -261,6 +305,7 @@ interface ErrorPageOptions {
 
 interface ServerStatus {
   running: boolean
+  state: 'idle' | 'running' | 'stopping' | 'stopped'
   routeCount: number
   threads: number
   workStealing: boolean

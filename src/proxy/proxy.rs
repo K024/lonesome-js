@@ -27,6 +27,8 @@ pub struct LonesomeProxy {
   routes: SharedRouteTable,
   sni_host_policy: SniHostPolicy,
   error_pages: Arc<ErrorPageStore>,
+  downstream_read_timeout: Option<Duration>,
+  downstream_write_timeout: Option<Duration>,
 }
 
 impl LonesomeProxy {
@@ -34,11 +36,15 @@ impl LonesomeProxy {
     routes: SharedRouteTable,
     sni_host_policy: SniHostPolicy,
     error_pages: Arc<ErrorPageStore>,
+    downstream_read_timeout: Option<Duration>,
+    downstream_write_timeout: Option<Duration>,
   ) -> Self {
     Self {
       routes,
       sni_host_policy,
       error_pages,
+      downstream_read_timeout,
+      downstream_write_timeout,
     }
   }
 
@@ -86,6 +92,12 @@ impl ProxyHttp for LonesomeProxy {
 
   async fn early_request_filter(&self, session: &mut Session, ctx: &mut Self::CTX) -> Result<()> {
     ctx.reset_for_request();
+    if let Some(timeout) = self.downstream_read_timeout {
+      session.as_downstream_mut().set_read_timeout(Some(timeout));
+    }
+    if let Some(timeout) = self.downstream_write_timeout {
+      session.as_downstream_mut().set_write_timeout(Some(timeout));
+    }
     let _ = ensure_session_cel_context(session, ctx);
     let _ = self.ensure_ctx_route(session, ctx);
 

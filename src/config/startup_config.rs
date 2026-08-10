@@ -57,12 +57,37 @@ pub struct StartupConfig {
   pub work_stealing: Option<bool>,
   pub listeners: Vec<StartupListenerConfig>,
   pub sni_host_policy: SniHostPolicy,
+  /// Per-connection read timeout on the downstream (client) side.
+  pub downstream_read_timeout_ms: Option<u64>,
+  /// Per-connection write timeout on the downstream (client) side.
+  pub downstream_write_timeout_ms: Option<u64>,
+  /// Grace period in seconds before the final step of graceful shutdown.
+  pub grace_period_seconds: Option<u64>,
+  /// Timeout in seconds of the final step of graceful shutdown.
+  pub graceful_shutdown_timeout_seconds: Option<u64>,
+  /// Size of the keepalive pool for upstream connections.
+  pub upstream_keepalive_pool_size: Option<usize>,
+  /// Fail-safe cap on upstream retries.
+  pub max_retries: Option<usize>,
+  /// Serve HTTP/2 prior-knowledge (h2c) on plaintext TCP listeners.
+  pub enable_h2c_downstream: Option<bool>,
 }
 
 impl StartupConfig {
   pub fn validate(&self) -> Result<(), String> {
     if self.listeners.is_empty() {
       return Err("startup.listeners cannot be empty".to_string());
+    }
+
+    if let Some(ms) = self.downstream_read_timeout_ms {
+      if ms == 0 {
+        return Err("startup.downstreamReadTimeoutMs must be > 0".to_string());
+      }
+    }
+    if let Some(ms) = self.downstream_write_timeout_ms {
+      if ms == 0 {
+        return Err("startup.downstreamWriteTimeoutMs must be > 0".to_string());
+      }
     }
 
     for listener in &self.listeners {

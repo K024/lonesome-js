@@ -9,6 +9,8 @@ use crate::config::{
 #[napi(object)]
 pub struct ServerStatus {
   pub running: bool,
+  #[napi(ts_type = "'idle' | 'running' | 'stopping' | 'stopped'")]
+  pub state: String,
   pub route_count: u32,
   pub threads: u32,
   pub work_stealing: bool,
@@ -59,6 +61,7 @@ impl From<CoreServerStatus> for ServerStatus {
   fn from(value: CoreServerStatus) -> Self {
     ServerStatus {
       running: value.running,
+      state: value.state.as_str().to_string(),
       route_count: value.route_count as u32,
       threads: value.threads as u32,
       work_stealing: value.work_stealing,

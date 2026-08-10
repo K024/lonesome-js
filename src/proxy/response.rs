@@ -76,12 +76,7 @@ pub async fn write_response(
       )
     } else if status >= 400 {
       if let Some(page) = resolve_error_page(proxy_ctx, session, status) {
-        (
-          page.body,
-          page.status,
-          page.headers,
-          page.content_type,
-        )
+        (page.body, page.status, page.headers, page.content_type)
       } else {
         (
           Bytes::new(),

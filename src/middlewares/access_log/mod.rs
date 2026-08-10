@@ -4,6 +4,7 @@ use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 
 use async_trait::async_trait;
+use cel::{Program, Value};
 use dashmap::DashMap;
 use pingora::proxy::Session;
 use pingora::{Error, Result};
@@ -11,6 +12,7 @@ use serde::Deserialize;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::mpsc;
 
+use crate::matcher::cel_session_context::ensure_context;
 use crate::middlewares::Middleware;
 use crate::proxy::ctx::ProxyCtx;
 
@@ -21,6 +23,10 @@ pub struct AccessLogConfig {
   /// Path to the access log file. Required. Lines are appended and never
   /// written to the process stdio (which is shared with the host JS runtime).
   pub file: Option<String>,
+  /// Optional CEL expression evaluated per request; its scalar result is
+  /// included in the log line as the `ext` field (empty string when absent or
+  /// evaluation fails).
+  pub ext: Option<String>,
 }
 
 impl AccessLogConfig {
@@ -33,6 +39,10 @@ impl AccessLogConfig {
     let file = self.file.as_deref().unwrap_or("");
     if file.trim().is_empty() {
       return Err("middleware access_log.file is required".to_string());
+    }
+    if let Some(ext) = &self.ext {
+      Program::compile(ext)
+        .map_err(|e| format!("failed to compile access_log.ext expression '{ext}': {e}"))?;
     }
     Ok(())
   }
@@ -130,16 +140,41 @@ fn sink_for(path: &str) -> Result<Arc<AccessLogSink>, String> {
 pub struct AccessLogMiddleware {
   json: bool,
   sink: Arc<AccessLogSink>,
+  ext_program: Option<Program>,
 }
 
 impl AccessLogMiddleware {
   pub fn from_config(cfg: AccessLogConfig) -> Result<Self, String> {
     cfg.validate()?;
     let file = cfg.file.as_deref().unwrap_or_default();
+    let ext_program = cfg
+      .ext
+      .as_deref()
+      .map(|expr| {
+        Program::compile(expr)
+          .map_err(|e| format!("failed to compile access_log.ext expression '{expr}': {e}"))
+      })
+      .transpose()?;
     Ok(Self {
       json: cfg.format.as_deref() == Some("json"),
       sink: sink_for(file)?,
+      ext_program,
     })
+  }
+
+  fn eval_ext(&self, proxy_ctx: &mut ProxyCtx, session: &Session) -> String {
+    let Some(program) = &self.ext_program else {
+      return String::new();
+    };
+    let ctx = ensure_context(session, proxy_ctx);
+    match program.execute(ctx) {
+      Ok(Value::String(v)) => v.to_string(),
+      Ok(Value::Int(v)) => v.to_string(),
+      Ok(Value::UInt(v)) => v.to_string(),
+      Ok(Value::Float(v)) => v.to_string(),
+      Ok(Value::Bool(v)) => v.to_string(),
+      _ => String::new(),
+    }
   }
 }
 
@@ -185,6 +220,7 @@ impl Middleware for AccessLogMiddleware {
       .and_then(|s| s.last_backend.as_ref())
       .map(|b| b.addr.to_string())
       .unwrap_or_default();
+    let ext = self.eval_ext(proxy_ctx, session);
 
     let line = if self.json {
       let entry = serde_json::json!({
@@ -194,13 +230,19 @@ impl Middleware for AccessLogMiddleware {
         "status": status,
         "latency_ms": latency_ms,
         "upstream": upstream,
+        "ext": ext,
         "error": error.map(|e| e.to_string()),
       });
       format!("{entry}\n")
     } else {
+      let ext_suffix = if ext.is_empty() {
+        String::new()
+      } else {
+        format!(" ext={ext}")
+      };
       let error_suffix = error.map(|e| format!(" error={e}")).unwrap_or_default();
       format!(
-        "{ts} {method} {path} status={status} latency={latency_ms}ms upstream={upstream}{error_suffix}\n"
+        "{ts} {method} {path} status={status} latency={latency_ms}ms upstream={upstream}{ext_suffix}{error_suffix}\n"
       )
     };
 

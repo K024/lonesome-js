@@ -67,9 +67,9 @@ pub fn build_middleware(cfg: &MiddlewareConfig) -> Result<Box<dyn Middleware>, S
       Ok(Box::new(ResponseHeadersMiddleware::from_config(v.clone())?))
     }
     MiddlewareType::Rewrite(v) => Ok(Box::new(RewriteMiddleware::from_config(v.clone())?)),
-    MiddlewareType::RewriteErrorPage(v) => {
-      Ok(Box::new(RewriteErrorPageMiddleware::from_config(v.clone())?))
-    }
+    MiddlewareType::RewriteErrorPage(v) => Ok(Box::new(RewriteErrorPageMiddleware::from_config(
+      v.clone(),
+    )?)),
     MiddlewareType::RewriteMethod(v) => {
       Ok(Box::new(RewriteMethodMiddleware::from_config(v.clone())?))
     }

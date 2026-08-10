@@ -111,6 +111,50 @@ describe('access_log middleware', () => {
     )
   })
 
+  it('includes a CEL ext field in both formats', async () => {
+    const file = join(logDir, 'ext.log')
+    const clean = withRoute(server, {
+      id: nextRouteId('alog-ext'),
+      matcher: { rule: "PathPrefix('/alog/ext')", priority: 50 },
+      middlewares: [{
+        type: 'access_log',
+        config: {
+          format: 'json',
+          file,
+          ext: "'m=' + MethodValue() + '|h=' + HostValue()",
+        },
+      }],
+      upstreams: upstreams(),
+    })
+
+    const res = await proxyFetch(proxyPort, '/alog/ext/item')
+    await res.text()
+    assert.strictEqual(res.status, 200)
+
+    const content = await waitForFileContent(file, /\/alog\/ext\/item/)
+    const entry = JSON.parse(content.trim().split('\n').pop()!)
+    assert.strictEqual(entry.ext, 'm=GET|h=127.0.0.1')
+
+    clean()
+  })
+
+  it('rejects an invalid ext CEL expression at validation', () => {
+    assert.throws(
+      () => {
+        server.validate({
+          id: nextRouteId('alog-bad-ext'),
+          matcher: { rule: "PathPrefix('/alog/ext')", priority: 50 },
+          middlewares: [{
+            type: 'access_log',
+            config: { format: 'json', file: join(logDir, 'ext2.log'), ext: 'Path(' },
+          }],
+          upstreams: upstreams(),
+        })
+      },
+      /access_log\.ext/,
+    )
+  })
+
   it('rejects a missing file at validation', () => {
     assert.throws(
       () => {

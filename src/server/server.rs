@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 
 use async_trait::async_trait;
+use pingora::apps::HttpServerOptions;
 use pingora::listeners::tls::TlsSettings;
 use pingora::listeners::TlsAcceptCallbacks;
 use pingora::proxy::http_proxy_service;
@@ -57,8 +58,18 @@ impl LonesomeRuntime {
         if let Some(work_stealing) = startup_for_thread.work_stealing {
           conf.work_stealing = work_stealing;
         }
-        conf.grace_period_seconds = Some(0);
-        conf.graceful_shutdown_timeout_seconds = Some(1);
+        // No in-process background tasks, and callers typically drain upstream
+        // load (via the JS controller) before calling stop(), so a short grace
+        // window is enough. Both remain configurable in StartupConfig.
+        conf.grace_period_seconds = Some(startup_for_thread.grace_period_seconds.unwrap_or(1));
+        conf.graceful_shutdown_timeout_seconds =
+          Some(startup_for_thread.graceful_shutdown_timeout_seconds.unwrap_or(1));
+        if let Some(size) = startup_for_thread.upstream_keepalive_pool_size {
+          conf.upstream_keepalive_pool_size = size;
+        }
+        if let Some(retries) = startup_for_thread.max_retries {
+          conf.max_retries = retries;
+        }
 
         let mut server = Server::new_with_opt_and_conf(None, conf);
         server.bootstrap();
@@ -69,8 +80,23 @@ impl LonesomeRuntime {
             routes,
             startup_for_thread.sni_host_policy,
             error_pages.clone(),
+            startup_for_thread
+              .downstream_read_timeout_ms
+              .map(std::time::Duration::from_millis),
+            startup_for_thread
+              .downstream_write_timeout_ms
+              .map(std::time::Duration::from_millis),
           ),
         );
+
+        // Serve HTTP/2 prior-knowledge (h2c) on plaintext listeners.
+        if startup_for_thread.enable_h2c_downstream.unwrap_or(false) {
+          if let Some(app) = service.app_logic_mut() {
+            let mut options = HttpServerOptions::default();
+            options.h2c = true;
+            app.server_options = Some(options);
+          }
+        }
 
         for listener in startup_for_thread.listeners {
           match listener {
@@ -121,6 +147,17 @@ impl LonesomeRuntime {
       handle: Some(handle),
       startup,
     })
+  }
+
+  /// Send the graceful shutdown signal and detach from the server thread,
+  /// returning its join handle. The caller can join on a background thread so
+  /// the calling (JS) thread is never blocked during graceful shutdown.
+  pub fn detach_shutdown(mut self) -> Result<std::thread::JoinHandle<()>, String> {
+    if let Some(tx) = self.shutdown_tx.take() {
+      tx.send(ShutdownSignal::GracefulTerminate)
+        .map_err(|e| format!("failed to send shutdown signal: {e}"))?;
+    }
+    Ok(self.handle.take().expect("runtime handle present"))
   }
 
   pub fn stop(&mut self) -> Result<(), String> {
