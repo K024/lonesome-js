@@ -190,6 +190,14 @@ not. Use `HostRegexp` for more complex host matching.
 
 These are useful in upstream-response and response stages (for example with `set_variable` or `response_headers`).
 
+### Error page functions
+
+- `ErrorStatusValue()` — the generated error status currently being served
+  (set while an error page matcher or `bodyExpression` is evaluated); `0`
+  otherwise. Useful in `updateErrorPage` matchers
+  (`ErrorStatusValue() == 503`) and body expressions
+  (`"'code=' + string(ErrorStatusValue())"`).
+
 ## Session Data Semantics
 
 ### `HostValue()` priority

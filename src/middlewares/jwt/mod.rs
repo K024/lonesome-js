@@ -5,7 +5,6 @@ use std::time::SystemTime;
 use async_trait::async_trait;
 use cel::{Program, Value};
 use josekit::jwt;
-use pingora::http::ResponseHeader;
 use pingora::proxy::Session;
 use pingora::Result;
 use serde::Deserialize;
@@ -17,6 +16,7 @@ use crate::matcher::cel_session_context::{
 use crate::middlewares::middleware::middleware_internal_error;
 use crate::middlewares::Middleware;
 use crate::proxy::ctx::ProxyCtx;
+use crate::proxy::response::write_response;
 
 use self::algorithms::{read_alg_kid, JwksVerifierPool};
 
@@ -228,19 +228,14 @@ impl JwtMiddleware {
     Ok(())
   }
 
-  async fn deny_unauthorized(&self, session: &mut Session) -> Result<bool> {
-    let mut resp = ResponseHeader::build(401, Some(3))
-      .map_err(|e| middleware_internal_error("jwt build 401 failed", e.to_string()))?;
-
-    resp
-      .insert_header("Content-Length", "0")
-      .map_err(|e| middleware_internal_error("jwt insert content-length failed", e.to_string()))?;
-
-    session
-      .write_response_header(Box::new(resp), true)
+  async fn deny_unauthorized(
+    &self,
+    proxy_ctx: &mut ProxyCtx,
+    session: &mut Session,
+  ) -> Result<bool> {
+    write_response(proxy_ctx, session, 401, &[], None, None)
       .await
       .map_err(|e| middleware_internal_error("jwt write 401 failed", e.to_string()))?;
-
     Ok(true)
   }
 }
@@ -264,7 +259,7 @@ impl Middleware for JwtMiddleware {
     match result {
       Ok(()) => Ok(false),
       Err(_e) if matches!(self.on_error, JwtErrorModeConfig::Passthrough) => Ok(false),
-      Err(_e) => self.deny_unauthorized(session).await,
+      Err(_e) => self.deny_unauthorized(proxy_ctx, session).await,
     }
   }
 }

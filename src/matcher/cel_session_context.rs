@@ -40,6 +40,9 @@ pub struct CelHttpSession {
   path: OnceLock<String>,
   client_ip: OnceLock<String>,
   query_pairs: OnceLock<Vec<(String, String)>>,
+  /// Set transiently while an error page matcher/body expression is evaluated,
+  /// so `ErrorStatusValue()` can report the generated status.
+  error_status: RwLock<Option<u16>>,
 }
 
 impl Opaque for CelHttpSession {
@@ -79,6 +82,7 @@ impl CelHttpSession {
       path: OnceLock::new(),
       client_ip: OnceLock::new(),
       query_pairs: OnceLock::new(),
+      error_status: RwLock::new(None),
     }
   }
 
@@ -205,6 +209,18 @@ impl CelHttpSession {
     self.request_time.to_owned()
   }
 
+  /// Set transiently while an error page matcher/body expression is evaluated.
+  pub fn set_error_status(&self, status: Option<u16>) {
+    if let Ok(mut lock) = self.error_status.write() {
+      *lock = status;
+    }
+  }
+
+  /// The generated error status currently being served (for `ErrorStatusValue`).
+  pub fn error_status(&self) -> Option<u16> {
+    self.error_status.read().ok().and_then(|lock| *lock)
+  }
+
   // response values
 
   pub fn response_status_value(&self) -> i64 {
@@ -265,6 +281,7 @@ impl CelHttpSession {
       path: OnceLock::new(),
       client_ip: OnceLock::new(),
       query_pairs: OnceLock::new(),
+      error_status: RwLock::new(None),
     })
   }
 }
@@ -388,6 +405,7 @@ mod tests {
       path: OnceLock::new(),
       client_ip: OnceLock::new(),
       query_pairs: OnceLock::new(),
+      error_status: RwLock::new(None),
     }
   }
 

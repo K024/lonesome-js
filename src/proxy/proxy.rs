@@ -16,19 +16,27 @@ use crate::matcher::cel_session_context::hostname_eq;
 use crate::middlewares::middleware::middleware_internal_error;
 use crate::proxy::cache::{build_cache_key, ProxyCacheHandler};
 use crate::proxy::ctx::ProxyCtx;
+use crate::proxy::response::write_response;
 use crate::route::{Route, SharedRouteTable};
+use crate::server::error_page_store::ErrorPageStore;
 
 #[derive(Clone)]
 pub struct LonesomeProxy {
   routes: SharedRouteTable,
   sni_host_policy: SniHostPolicy,
+  error_pages: Arc<ErrorPageStore>,
 }
 
 impl LonesomeProxy {
-  pub fn new(routes: SharedRouteTable, sni_host_policy: SniHostPolicy) -> Self {
+  pub fn new(
+    routes: SharedRouteTable,
+    sni_host_policy: SniHostPolicy,
+    error_pages: Arc<ErrorPageStore>,
+  ) -> Self {
     Self {
       routes,
       sni_host_policy,
+      error_pages,
     }
   }
 
@@ -71,7 +79,7 @@ impl ProxyHttp for LonesomeProxy {
   type CTX = ProxyCtx;
 
   fn new_ctx(&self) -> Self::CTX {
-    ProxyCtx::new(self.sni_host_policy)
+    ProxyCtx::new(self.sni_host_policy, self.error_pages.clone())
   }
 
   async fn early_request_filter(&self, session: &mut Session, ctx: &mut Self::CTX) -> Result<()> {
@@ -90,7 +98,7 @@ impl ProxyHttp for LonesomeProxy {
 
   async fn request_filter(&self, session: &mut Session, ctx: &mut Self::CTX) -> Result<bool> {
     if let Some(status) = self.sni_host_reject(session, ctx) {
-      session.respond_error(status).await?;
+      write_response(ctx, session, status, &[], None, None).await?;
       return Ok(true);
     }
 
@@ -540,7 +548,7 @@ impl ProxyHttp for LonesomeProxy {
     };
 
     if code > 0 {
-      let _ = session.respond_error(code).await;
+      let _ = write_response(ctx, session, code, &[], None, None).await;
     }
 
     FailToProxy {

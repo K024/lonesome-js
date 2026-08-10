@@ -1,7 +1,6 @@
 use async_trait::async_trait;
 use bytes::Bytes;
 use cel::{Program, Value};
-use pingora::http::ResponseHeader;
 use pingora::proxy::Session;
 use pingora::Result;
 use serde::Deserialize;
@@ -10,6 +9,7 @@ use crate::matcher::cel_session_context::ensure_context;
 use crate::middlewares::middleware::middleware_internal_error;
 use crate::middlewares::Middleware;
 use crate::proxy::ctx::ProxyCtx;
+use crate::proxy::response::write_response;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct RespondConfig {
@@ -115,57 +115,45 @@ impl Middleware for RespondMiddleware {
       return Ok(false);
     }
 
-    let body_bytes = if self.body_program.is_some() {
+    let (body_bytes, content_type) = if self.body_program.is_some() {
       let body_value = self.eval_body_expression(proxy_ctx, session)?;
-      if body_value.is_empty() {
-        Bytes::new()
-      } else {
-        Bytes::from(body_value)
-      }
+      (
+        if body_value.is_empty() {
+          Bytes::new()
+        } else {
+          Bytes::from(body_value)
+        },
+        self.content_type.clone(),
+      )
     } else {
       match self.body.as_deref() {
-        Some(v) if !v.is_empty() => Bytes::copy_from_slice(v.as_bytes()),
-        _ => Bytes::new(),
+        Some(v) if !v.is_empty() => (
+          Bytes::copy_from_slice(v.as_bytes()),
+          self.content_type.clone(),
+        ),
+        _ => (Bytes::new(), self.content_type.clone()),
       }
     };
 
-    let mut resp = ResponseHeader::build(self.status, Some(4)).map_err(|e| {
-      middleware_internal_error("respond create response header failed", e.to_string())
-    })?;
+    // Explicit content bypasses the error page store; a bare error status
+    // consults it.
+    let explicit_body = if body_bytes.is_empty() {
+      None
+    } else {
+      Some(body_bytes.as_ref())
+    };
+    let content_type = content_type.as_deref();
 
-    if !body_bytes.is_empty() {
-      let content_type = self
-        .content_type
-        .as_deref()
-        .unwrap_or("text/plain; charset=utf-8");
-      resp
-        .insert_header("Content-Type", content_type)
-        .map_err(|e| {
-          middleware_internal_error("respond insert content-type failed", e.to_string())
-        })?;
-    }
-
-    resp
-      .insert_header("Content-Length", body_bytes.len().to_string())
-      .map_err(|e| {
-        middleware_internal_error("respond insert content-length failed", e.to_string())
-      })?;
-
-    session
-      .write_response_header(Box::new(resp), body_bytes.is_empty())
-      .await
-      .map_err(|e| {
-        middleware_internal_error("respond write response header failed", e.to_string())
-      })?;
-
-    if !body_bytes.is_empty() {
-      session
-        .write_response_body(Some(body_bytes), true)
-        .await
-        .map_err(|e| {
-          middleware_internal_error("respond write response body failed", e.to_string())
-        })?;
-    }
+    write_response(
+      proxy_ctx,
+      session,
+      self.status,
+      &[],
+      explicit_body,
+      content_type,
+    )
+    .await
+    .map_err(|e| middleware_internal_error("respond write response failed", e.to_string()))?;
 
     Ok(true)
   }

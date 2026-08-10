@@ -3,7 +3,6 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use cel::{Program, Value};
-use pingora::http::ResponseHeader;
 use pingora::proxy::Session;
 use pingora::Result;
 use pingora_limits::rate::Rate;
@@ -13,6 +12,7 @@ use crate::matcher::cel_session_context::ensure_context;
 use crate::middlewares::middleware::middleware_internal_error;
 use crate::middlewares::Middleware;
 use crate::proxy::ctx::ProxyCtx;
+use crate::proxy::response::write_response;
 
 static OBSERVE_SECONDS: isize = 10;
 static RATE_LIMITER: LazyLock<Rate> =
@@ -173,36 +173,21 @@ impl Middleware for RateLimitMiddleware {
       return Ok(false);
     }
 
-    let mut header = ResponseHeader::build(self.status, Some(4))
-      .map_err(|e| middleware_internal_error("rate_limit build response failed", e.to_string()))?;
-
-    if self.include_headers {
-      header
-        .insert_header(
+    let headers = if self.include_headers {
+      vec![
+        (
           "X-RateLimit-Limit",
           self.max_requests_per_observe.to_string(),
-        )
-        .map_err(|e| {
-          middleware_internal_error("rate_limit insert X-RateLimit-Limit failed", e.to_string())
-        })?;
-      header
-        .insert_header("X-RateLimit-Remaining", "0")
-        .map_err(|e| {
-          middleware_internal_error(
-            "rate_limit insert X-RateLimit-Remaining failed",
-            e.to_string(),
-          )
-        })?;
-      header
-        .insert_header("X-RateLimit-Reset", OBSERVE_SECONDS.to_string())
-        .map_err(|e| {
-          middleware_internal_error("rate_limit insert X-RateLimit-Reset failed", e.to_string())
-        })?;
-    }
+        ),
+        ("X-RateLimit-Remaining", "0".to_string()),
+        ("X-RateLimit-Reset", OBSERVE_SECONDS.to_string()),
+      ]
+    } else {
+      Vec::new()
+    };
 
     session.as_downstream_mut().set_keepalive(None);
-    session
-      .write_response_header(Box::new(header), true)
+    write_response(proxy_ctx, session, self.status, &headers, None, None)
       .await
       .map_err(|e| middleware_internal_error("rate_limit write response failed", e.to_string()))?;
 

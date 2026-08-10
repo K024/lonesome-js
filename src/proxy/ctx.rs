@@ -7,6 +7,7 @@ use crate::config::SniHostPolicy;
 use crate::matcher::cel_session_context::SessionCelContext;
 use crate::proxy::cache::ProxyCacheHandler;
 use crate::route::Route;
+use crate::server::error_page_store::ErrorPageStore;
 use crate::upstream::upstream::UpstreamState;
 
 pub struct ProxyCtx {
@@ -19,10 +20,11 @@ pub struct ProxyCtx {
   /// Set by the access_log middleware at request start; used to compute latency.
   pub access_log_start: Option<Instant>,
   pub sni_host_policy: SniHostPolicy,
+  pub error_pages: Arc<ErrorPageStore>,
 }
 
 impl ProxyCtx {
-  pub fn new(sni_host_policy: SniHostPolicy) -> Self {
+  pub fn new(sni_host_policy: SniHostPolicy, error_pages: Arc<ErrorPageStore>) -> Self {
     Self {
       route_id: String::new(),
       current_route: None,
@@ -32,6 +34,7 @@ impl ProxyCtx {
       extensions: Extensions::new(),
       access_log_start: None,
       sni_host_policy,
+      error_pages,
     }
   }
 

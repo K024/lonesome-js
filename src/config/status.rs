@@ -14,6 +14,7 @@ pub struct ServerStatus {
   pub threads: usize,
   pub work_stealing: bool,
   pub sni_host_policy: SniHostPolicy,
+  pub error_page_count: usize,
   pub listeners: Vec<ListenerStatus>,
   pub routes: Vec<RouteStatus>,
 }

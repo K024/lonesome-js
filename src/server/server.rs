@@ -13,6 +13,7 @@ use crate::config::{StartupConfig, StartupListenerConfig};
 use crate::proxy::LonesomeProxy;
 use crate::route::SharedRouteTable;
 use crate::server::cert_store::CertStore;
+use crate::server::error_page_store::ErrorPageStore;
 use crate::server::tls_callbacks::DownstreamTlsCallbacks;
 
 pub struct LonesomeRuntime {
@@ -26,6 +27,7 @@ impl LonesomeRuntime {
     startup: StartupConfig,
     routes: SharedRouteTable,
     cert_store: Arc<CertStore>,
+    error_pages: Arc<ErrorPageStore>,
   ) -> Result<Self, String> {
     startup.validate()?;
 
@@ -63,7 +65,11 @@ impl LonesomeRuntime {
 
         let mut service = http_proxy_service(
           &server.configuration,
-          LonesomeProxy::new(routes, startup_for_thread.sni_host_policy),
+          LonesomeProxy::new(
+            routes,
+            startup_for_thread.sni_host_policy,
+            error_pages.clone(),
+          ),
         );
 
         for listener in startup_for_thread.listeners {

@@ -1,5 +1,6 @@
 pub mod cache;
 pub mod error;
+pub mod error_page;
 pub mod interceptor;
 pub mod middleware_config;
 pub mod route_config;

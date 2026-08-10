@@ -4,7 +4,6 @@ use async_trait::async_trait;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine;
 use cel::{Program, Value};
-use pingora::http::ResponseHeader;
 use pingora::proxy::Session;
 use pingora::Result;
 use serde::Deserialize;
@@ -13,6 +12,7 @@ use crate::matcher::cel_session_context::ensure_context;
 use crate::middlewares::middleware::middleware_internal_error;
 use crate::middlewares::Middleware;
 use crate::proxy::ctx::ProxyCtx;
+use crate::proxy::response::write_response;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct BasicUser {
@@ -86,25 +86,18 @@ impl BasicAuthMiddleware {
     matches!(program.execute(ctx), Ok(Value::Bool(true)))
   }
 
-  async fn issue_challenge(&self, session: &mut Session) -> Result<bool> {
-    let mut resp = ResponseHeader::build(401, Some(3))
-      .map_err(|e| middleware_internal_error("basic_auth build 401 failed", e.to_string()))?;
-    resp
-      .insert_header(
-        "WWW-Authenticate",
-        format!("Basic realm=\"{}\", charset=\"UTF-8\"", self.realm),
-      )
-      .map_err(|e| {
-        middleware_internal_error("basic_auth insert www-authenticate failed", e.to_string())
-      })?;
-    resp.insert_header("Content-Length", "0").map_err(|e| {
-      middleware_internal_error("basic_auth insert content-length failed", e.to_string())
-    })?;
-
-    session
-      .write_response_header(Box::new(resp), true)
-      .await
-      .map_err(|e| middleware_internal_error("basic_auth write 401 failed", e.to_string()))?;
+  async fn issue_challenge(&self, proxy_ctx: &mut ProxyCtx, session: &mut Session) -> Result<bool> {
+    let www_authenticate = format!("Basic realm=\"{}\", charset=\"UTF-8\"", self.realm);
+    write_response(
+      proxy_ctx,
+      session,
+      401,
+      &[("WWW-Authenticate", www_authenticate)],
+      None,
+      None,
+    )
+    .await
+    .map_err(|e| middleware_internal_error("basic_auth write 401 failed", e.to_string()))?;
 
     Ok(true)
   }
@@ -128,7 +121,7 @@ impl BasicAuthMiddleware {
     )
   }
 
-  async fn authenticate(&self, session: &mut Session) -> Result<bool> {
+  async fn authenticate(&self, proxy_ctx: &mut ProxyCtx, session: &mut Session) -> Result<bool> {
     let auth_value = session
       .req_header()
       .headers
@@ -138,15 +131,15 @@ impl BasicAuthMiddleware {
       .unwrap_or("");
 
     let Some((username, password)) = Self::parse_basic_credentials(auth_value) else {
-      return self.issue_challenge(session).await;
+      return self.issue_challenge(proxy_ctx, session).await;
     };
 
     let Some(hash_str) = self.users.get(&username) else {
-      return self.issue_challenge(session).await;
+      return self.issue_challenge(proxy_ctx, session).await;
     };
 
     if !Self::verify_password(password.as_str(), hash_str.as_str()) {
-      return self.issue_challenge(session).await;
+      return self.issue_challenge(proxy_ctx, session).await;
     }
 
     Ok(false)
@@ -160,6 +153,6 @@ impl Middleware for BasicAuthMiddleware {
       return Ok(false);
     }
 
-    self.authenticate(session).await
+    self.authenticate(proxy_ctx, session).await
   }
 }

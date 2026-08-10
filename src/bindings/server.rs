@@ -4,6 +4,7 @@ use std::sync::Mutex;
 use napi::bindgen_prelude::Result;
 use napi_derive::napi;
 
+use crate::bindings::error_page::ErrorPageOptions;
 use crate::bindings::route_config::RouteConfig;
 use crate::bindings::startup_config::StartupConfig;
 use crate::bindings::status::ServerStatus;
@@ -14,6 +15,7 @@ use crate::config::{
 };
 use crate::route::{Route, SharedRouteTable};
 use crate::server::cert_store::CertStore;
+use crate::server::error_page_store::ErrorPageStore;
 use crate::server::LonesomeRuntime;
 
 #[napi(object)]
@@ -28,6 +30,7 @@ pub struct LonesomeServer {
   routes: SharedRouteTable,
   runtime: Mutex<Option<LonesomeRuntime>>,
   cert_store: Arc<CertStore>,
+  error_pages: Arc<ErrorPageStore>,
 }
 
 fn build_route(route: RouteConfig) -> Result<Route> {
@@ -43,6 +46,7 @@ impl LonesomeServer {
       routes: SharedRouteTable::new(),
       runtime: Mutex::new(None),
       cert_store: Arc::new(CertStore::new()),
+      error_pages: Arc::new(ErrorPageStore::new()),
     }
   }
 
@@ -55,10 +59,31 @@ impl LonesomeServer {
       return Err(to_napi_error("lonesome server already started"));
     }
 
-    let rt = LonesomeRuntime::start(startup_cfg, self.routes.clone(), self.cert_store.clone())
-      .map_err(to_napi_error)?;
+    let rt = LonesomeRuntime::start(
+      startup_cfg,
+      self.routes.clone(),
+      self.cert_store.clone(),
+      self.error_pages.clone(),
+    )
+    .map_err(to_napi_error)?;
     *guard = Some(rt);
     Ok(())
+  }
+
+  /// Register or replace an error page served for generated error responses
+  /// (`>= 400`). Entries are matched by id (upsert); among entries serving the
+  /// same status the first whose `matcher` (if any) matches wins, ordered by
+  /// `priority` (higher first). Invalid CEL, headers or statuses are rejected.
+  #[napi]
+  pub fn update_error_page(&self, options: ErrorPageOptions) -> Result<()> {
+    let config = options.try_into().map_err(to_napi_error)?;
+    self.error_pages.update(config).map_err(to_napi_error)
+  }
+
+  /// Remove an error page previously registered via `updateErrorPage`.
+  #[napi]
+  pub fn remove_error_page(&self, id: String) -> Result<bool> {
+    Ok(self.error_pages.remove(&id))
   }
 
   /// Register or replace the TLS certificate served for `host`.
@@ -126,23 +151,25 @@ impl LonesomeServer {
     let running = guard.as_ref().is_some_and(LonesomeRuntime::is_running);
     let route_count = self.routes.route_count() as u32;
 
-    let (threads, work_stealing, listeners, sni_host_policy) = match guard.as_ref() {
-      Some(rt) => {
-        let startup = rt.startup();
-        let listeners = startup
-          .listeners
-          .iter()
-          .map(listener_status)
-          .collect::<Vec<_>>();
-        (
-          startup.threads.unwrap_or(0) as u32,
-          startup.work_stealing.unwrap_or(false),
-          listeners,
-          startup.sni_host_policy,
-        )
-      }
-      None => (0, false, Vec::new(), Default::default()),
-    };
+    let (threads, work_stealing, listeners, sni_host_policy, error_page_count) =
+      match guard.as_ref() {
+        Some(rt) => {
+          let startup = rt.startup();
+          let listeners = startup
+            .listeners
+            .iter()
+            .map(listener_status)
+            .collect::<Vec<_>>();
+          (
+            startup.threads.unwrap_or(0) as u32,
+            startup.work_stealing.unwrap_or(false),
+            listeners,
+            startup.sni_host_policy,
+            self.error_pages.len(),
+          )
+        }
+        None => (0, false, Vec::new(), Default::default(), 0),
+      };
 
     let routes = self
       .routes
@@ -163,6 +190,7 @@ impl LonesomeServer {
       threads: threads as usize,
       work_stealing,
       sni_host_policy,
+      error_page_count,
       listeners,
       routes,
     };

@@ -16,6 +16,8 @@ class LonesomeServer {
   status(): ServerStatus
   updateCert(host: string, options: UpdateCertOptions): void
   removeCert(host: string): boolean
+  updateErrorPage(options: ErrorPageOptions): void
+  removeErrorPage(id: string): boolean
 }
 ```
 
@@ -97,7 +99,7 @@ is active on a route) passive upstream health. It never measures traffic.
 ```ts
 const st = server.status()
 // {
-//   running, routeCount, threads, workStealing, sniHostPolicy,
+//   running, routeCount, threads, workStealing, sniHostPolicy, errorPageCount,
 //   listeners: [{ kind, addr }],
 //   routes: [{ id, rule, priority, loadBalancer, upstreams: [{ kind, address, weight, health? }] }],
 // }
@@ -171,6 +173,44 @@ server.start({
 })
 ```
 
+## Error Pages
+
+`updateErrorPage` / `removeErrorPage` control the responses served for
+**generated** error statuses (>= 400): the SNI/Host policy gate (400/421),
+proxy failures (404/502/...), and the error-producing middlewares (`jwt`,
+`basic_auth`, `rate_limit`, and a bare `respond` error status). Upstream content
+and explicit middleware bodies (e.g. `respond.body`) are never overridden.
+Pages are hot-updated at runtime; reads are lock-free snapshots.
+
+```ts
+server.updateErrorPage({
+  id: 'maintenance',
+  status: '502-504',           // number | string spec: 400-403,418,500
+  matcher: "PathPrefix('/api')", // optional CEL rule; page applies only when it matches
+  priority: 10,                  // higher wins; ties keep insertion order
+  statusOverride: 200,           // optional: serve with a different status
+  body: 'Service temporarily unavailable',
+  contentType: 'text/html; charset=utf-8',
+  headers: { 'Retry-After': '120' },
+})
+server.removeErrorPage('maintenance')
+```
+
+Semantics:
+
+- Entries are keyed by `id` (upsert). Omit `status` to serve any generated
+  error status. `status` accepts a single code or a spec like `"400-403,418"`.
+- Among entries whose status applies, the first whose `matcher` evaluates to
+  true wins; a page without a matcher is unconditional.
+- Body may be a static `body` or a CEL `bodyExpression` (scalar result), which
+  can reference `ErrorStatusValue()` (the status being served), `HostValue()`,
+  `PathValue()`, `HeaderValue(...)`, `ClientIPValue()`, etc.
+- When no page matches, the built-in empty error response is served.
+- The page count is reported as `status().errorPageCount`.
+
+See [cel.md](./cel.md) for the CEL functions available in matchers and body
+expressions.
+
 ## Type References
 
 ```ts
@@ -199,12 +239,30 @@ interface UpdateCertOptions {
   allowMismatch?: boolean
 }
 
+interface ErrorPageOptions {
+  id: string
+  // Single code or a comma-separated spec with ranges, e.g. '400-403,418,500'.
+  // Omit to serve any generated error status.
+  status?: number | string
+  // Optional CEL rule; the page is used only when it evaluates to true.
+  matcher?: string
+  body?: string
+  // CEL scalar expression; mutually exclusive with `body`.
+  bodyExpression?: string
+  contentType?: string
+  headers?: Record<string, string>
+  // Serve with a different status than the generated one.
+  statusOverride?: number
+  priority?: number
+}
+
 interface ServerStatus {
   running: boolean
   routeCount: number
   threads: number
   workStealing: boolean
   sniHostPolicy: 'loose_by_sni' | 'loose_by_header' | 'strict' | 'strict_rewrite_header'
+  errorPageCount: number
   listeners: Array<{ kind: string; addr: string }>
   routes: Array<{
     id: string

@@ -152,6 +152,12 @@ fn authority_value(ftx: &FunctionContext) -> String {
   with_session(ftx, |s| s.http_authority().unwrap_or_default()).unwrap_or_default()
 }
 
+/// The generated error status currently being served (set while an error page
+/// matcher or body expression is evaluated), or `0` otherwise.
+fn error_status_value(ftx: &FunctionContext) -> i64 {
+  with_session(ftx, |s| i64::from(s.error_status().unwrap_or(0))).unwrap_or(0)
+}
+
 fn method_value(ftx: &FunctionContext) -> String {
   with_session(ftx, |s| s.method().to_string()).unwrap_or_default()
 }
@@ -275,6 +281,9 @@ pub fn parent_context() -> &'static Context<'static> {
     // Response functions
     ctx.add_function("ResponseStatusValue", response_status_value);
     ctx.add_function("ResponseHeaderValue", response_header_value);
+
+    // Error page functions
+    ctx.add_function("ErrorStatusValue", error_status_value);
 
     // Auth functions
     ctx.add_function("JwtClaim", jwt_claim);
