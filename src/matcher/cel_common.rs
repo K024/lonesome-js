@@ -158,6 +158,13 @@ fn error_status_value(ftx: &FunctionContext) -> i64 {
   with_session(ftx, |s| i64::from(s.error_status().unwrap_or(0))).unwrap_or(0)
 }
 
+/// A W3C Trace Context compliant 32-hex trace id, randomly generated once per
+/// request. The proxy does not read or propagate it; using it (set_variable,
+/// headers, logs, ...) is up to the caller.
+fn trace_id_value(ftx: &FunctionContext) -> String {
+  with_session(ftx, |s| s.trace_id().to_string()).unwrap_or_default()
+}
+
 fn method_value(ftx: &FunctionContext) -> String {
   with_session(ftx, |s| s.method().to_string()).unwrap_or_default()
 }
@@ -284,6 +291,9 @@ pub fn parent_context() -> &'static Context<'static> {
 
     // Error page functions
     ctx.add_function("ErrorStatusValue", error_status_value);
+
+    // Trace functions
+    ctx.add_function("TraceIdValue", trace_id_value);
 
     // Auth functions
     ctx.add_function("JwtClaim", jwt_claim);

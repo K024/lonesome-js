@@ -180,6 +180,7 @@ not. Use `HostRegexp` for more complex host matching.
 - `QueryValue(name)`
 - `ClientIPValue()`
 - `RequestTime()`
+- `TraceIdValue()`
 - `JwtClaimValue(name)`
 - `JwtPayloadValue()`
 
@@ -229,6 +230,27 @@ matcher: {
   rule: "SniValue() == '' || AuthorityValue() == '' || SniValue() == AuthorityValue()",
 }
 ```
+
+### `TraceIdValue()`
+
+A W3C Trace Context compliant 32-hex trace id, randomly generated once per
+request (stable across all CEL evaluations in the same request). The proxy does
+not read or propagate it — it does not inspect inbound `traceparent`, does not
+inject it upstream, and does not echo it downstream. Using it is entirely up to
+the caller:
+
+```ts
+// echo back to the client
+response_headers: { name: 'X-Request-Id', action: 'set', expression: 'TraceIdValue()' }
+
+// capture once, reuse later
+set_variable: { name: 'trace', stage: 'request', expression: 'TraceIdValue()' }
+response_headers: { name: 'X-Trace-Id', action: 'set', expression: 'trace' }
+```
+
+External trace ids (e.g. an inbound `traceparent`) are not honored by
+`TraceIdValue()`; handle them explicitly with `HeaderValue('traceparent')` /
+`HeaderValue('x-request-id')` if you need to reuse an incoming id.
 
 ### `PathValue()` decoding
 

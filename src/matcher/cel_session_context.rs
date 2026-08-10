@@ -43,6 +43,9 @@ pub struct CelHttpSession {
   /// Set transiently while an error page matcher/body expression is evaluated,
   /// so `ErrorStatusValue()` can report the generated status.
   error_status: RwLock<Option<u16>>,
+  /// W3C Trace Context compliant 32-hex trace id: the inbound `traceparent`
+  /// trace id when valid, otherwise a freshly generated one.
+  trace_id: OnceLock<String>,
 }
 
 impl Opaque for CelHttpSession {
@@ -83,6 +86,7 @@ impl CelHttpSession {
       client_ip: OnceLock::new(),
       query_pairs: OnceLock::new(),
       error_status: RwLock::new(None),
+      trace_id: OnceLock::new(),
     }
   }
 
@@ -221,6 +225,15 @@ impl CelHttpSession {
     self.error_status.read().ok().and_then(|lock| *lock)
   }
 
+  /// A W3C Trace Context compliant 32-hex trace id, randomly generated once per
+  /// request and cached for stability. It does not read any request/session
+  /// data and is not propagated by the proxy; using it (set_variable, headers,
+  /// logs, ...) is entirely up to the caller. External trace ids can be
+  /// handled by the user via `HeaderValue(...)`.
+  pub fn trace_id(&self) -> &str {
+    self.trace_id.get_or_init(generate_trace_id)
+  }
+
   // response values
 
   pub fn response_status_value(&self) -> i64 {
@@ -282,6 +295,7 @@ impl CelHttpSession {
       client_ip: OnceLock::new(),
       query_pairs: OnceLock::new(),
       error_status: RwLock::new(None),
+      trace_id: OnceLock::new(),
     })
   }
 }
@@ -326,6 +340,26 @@ fn decode_path(path: &str) -> String {
   percent_encoding::percent_decode_str(path)
     .decode_utf8_lossy()
     .into_owned()
+}
+
+/// Generates a random W3C-compliant trace id (32 lowercase hex, non-zero).
+fn generate_trace_id() -> String {
+  loop {
+    let bytes: [u8; 16] = rand::random();
+    if bytes.iter().any(|b| *b != 0) {
+      return hex_encode_lower(&bytes);
+    }
+  }
+}
+
+fn hex_encode_lower(bytes: &[u8]) -> String {
+  const HEX: &[u8; 16] = b"0123456789abcdef";
+  let mut out = String::with_capacity(bytes.len() * 2);
+  for byte in bytes {
+    out.push(HEX[(byte >> 4) as usize] as char);
+    out.push(HEX[(byte & 0x0f) as usize] as char);
+  }
+  out
 }
 
 pub fn cel_http_session_key() -> &'static str {
@@ -406,6 +440,7 @@ mod tests {
       client_ip: OnceLock::new(),
       query_pairs: OnceLock::new(),
       error_status: RwLock::new(None),
+      trace_id: OnceLock::new(),
     }
   }
 

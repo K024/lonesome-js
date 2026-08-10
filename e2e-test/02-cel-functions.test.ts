@@ -1,5 +1,6 @@
 import { describe, it, before, after } from 'node:test'
 import assert from 'node:assert/strict'
+import { evaluateExpression } from '../dist/index.js'
 import { startProxy } from './helpers/proxy.js'
 import { createDynamicUpstream } from './helpers/upstream.js'
 import { nextRouteId, tcpUpstream, withRoute } from './helpers/routes.js'
@@ -341,5 +342,74 @@ describe('Host wildcard matching', () => {
     const { response, body } = await requestWithCustomHost(proxyPort, '/', 'exact.example.com')
     assert.strictEqual(response.statusCode, 200)
     assert.strictEqual(body, 'exact')
+  })
+})
+
+describe('TraceIdValue', () => {
+  const TRACE_ID_RE = /^[0-9a-f]{32}$/
+
+  it('is available offline and returns a W3C-compliant 32-hex id', () => {
+    const id = evaluateExpression('TraceIdValue()')
+    assert.strictEqual(typeof id, 'string')
+    assert.match(id, TRACE_ID_RE)
+    assert.notStrictEqual(id, '0'.repeat(32))
+  })
+
+  it('generates a fresh id per evaluation', () => {
+    const a = evaluateExpression('TraceIdValue()')
+    const b = evaluateExpression('TraceIdValue()')
+    assert.notStrictEqual(a, b)
+  })
+
+  it('is stable within a request and echoes via response_headers', async () => {
+    cleanups.push(withRoute(server, {
+      id: nextRouteId('cel-trace-id'),
+      matcher: { rule: "PathPrefix('/cel/trace')", priority: 50 },
+      middlewares: [
+        {
+          type: 'response_headers',
+          config: {
+            name: 'X-Trace-Id',
+            action: 'set',
+            expression: 'TraceIdValue()',
+          },
+        },
+      ],
+      upstreams: tcpUpstream(upstream.port),
+    }))
+
+    const first = await proxyFetch(proxyPort, '/cel/trace')
+    await first.text()
+    const second = await proxyFetch(proxyPort, '/cel/trace')
+    await second.text()
+
+    const id1 = first.headers.get('x-trace-id') ?? ''
+    const id2 = second.headers.get('x-trace-id') ?? ''
+    assert.match(id1, TRACE_ID_RE)
+    assert.match(id2, TRACE_ID_RE)
+    assert.notStrictEqual(id1, id2)
+  })
+
+  it('is consistent across stages within one request via set_variable', async () => {
+    cleanups.push(withRoute(server, {
+      id: nextRouteId('cel-trace-id-var'),
+      matcher: { rule: "PathPrefix('/cel/trace/var')", priority: 50 },
+      middlewares: [
+        {
+          type: 'set_variable',
+          config: { name: 'trace', stage: 'request', expression: 'TraceIdValue()' },
+        },
+        {
+          type: 'response_headers',
+          config: { name: 'X-Trace-Id', action: 'set', expression: 'trace' },
+        },
+      ],
+      upstreams: tcpUpstream(upstream.port),
+    }))
+
+    const res = await proxyFetch(proxyPort, '/cel/trace/var')
+    await res.text()
+    const id = res.headers.get('x-trace-id') ?? ''
+    assert.match(id, TRACE_ID_RE)
   })
 })
