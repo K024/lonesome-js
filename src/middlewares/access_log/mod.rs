@@ -143,6 +143,12 @@ impl AccessLogMiddleware {
   }
 }
 
+/// Middleware-private per-request state, stored in `ProxyCtx.extensions`
+/// (type-keyed) so `ProxyCtx` stays free of single-middleware concerns. Holds
+/// the `Instant` captured at request start for latency computation.
+#[derive(Clone, Copy, Debug)]
+struct AccessLogStart(Instant);
+
 #[async_trait]
 impl Middleware for AccessLogMiddleware {
   async fn early_request_filter(
@@ -150,7 +156,7 @@ impl Middleware for AccessLogMiddleware {
     proxy_ctx: &mut ProxyCtx,
     _session: &mut Session,
   ) -> Result<()> {
-    proxy_ctx.access_log_start = Some(Instant::now());
+    proxy_ctx.extensions.insert(AccessLogStart(Instant::now()));
     Ok(())
   }
 
@@ -160,7 +166,11 @@ impl Middleware for AccessLogMiddleware {
     session: &mut Session,
     error: Option<&Error>,
   ) -> Result<()> {
-    let start = proxy_ctx.access_log_start.unwrap_or_else(Instant::now);
+    let start = proxy_ctx
+      .extensions
+      .get::<AccessLogStart>()
+      .map(|s| s.0)
+      .unwrap_or_else(Instant::now);
     let latency_ms = start.elapsed().as_millis();
     let ts = chrono::Utc::now().to_rfc3339();
     let method = session.req_header().method.as_str();

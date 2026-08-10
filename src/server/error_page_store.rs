@@ -43,7 +43,7 @@ pub struct ErrorPageConfig {
 
 /// Parses a status spec such as `"400-403,418,500"` into the set of statuses.
 /// Each code must be within `400..=599`.
-fn parse_status_spec(spec: &str) -> Result<Vec<u16>, String> {
+pub fn parse_status_spec(spec: &str) -> Result<Vec<u16>, String> {
   if spec.trim().is_empty() {
     return Ok(Vec::new());
   }

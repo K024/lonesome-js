@@ -207,6 +207,9 @@ Semantics:
   `PathValue()`, `HeaderValue(...)`, `ClientIPValue()`, etc.
 - When no page matches, the built-in empty error response is served.
 - The page count is reported as `status().errorPageCount`.
+- **Upstream** 5xx responses are forwarded verbatim by default. Use the
+  [`rewrite_error_page`](./middlewares/rewrite_error_page.md) middleware to
+  route selected upstream error responses through this store instead.
 
 See [cel.md](./cel.md) for the CEL functions available in matchers and body
 expressions.

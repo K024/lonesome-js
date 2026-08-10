@@ -46,6 +46,7 @@ async function httpsWithSni(
 
 conditionalDescribe('sniHostPolicy', skipWithoutOpenssl, () => {
   async function startPolicyServer(policy: SniHostPolicy): Promise<{
+    server: LonesomeServerType
     port: number
     upstreamA: ReturnType<typeof createDynamicUpstream>
     upstreamB: ReturnType<typeof createDynamicUpstream>
@@ -86,6 +87,7 @@ conditionalDescribe('sniHostPolicy', skipWithoutOpenssl, () => {
     ]
 
     return {
+      server,
       port,
       upstreamA,
       upstreamB,
@@ -125,6 +127,21 @@ conditionalDescribe('sniHostPolicy', skipWithoutOpenssl, () => {
       assert.strictEqual(status, 200)
       assert.strictEqual(hostSeen, 'a.example.com')
       assert.strictEqual(upstreamUrl, '/probe')
+    })
+
+    it('renders a configured error page for a rejected mismatch (421)', async () => {
+      fixture.server.updateErrorPage({ id: 'gate421', status: 421, body: 'MISDIRECTED-PAGE' })
+      const { status, hostSeen } = await httpsWithSni(fixture.port, 'a.example.com', 'b.example.com')
+      assert.strictEqual(status, 421)
+      assert.strictEqual(hostSeen, '')
+      // the 421 carries the rendered page body
+      const agent = new https.Agent({ rejectUnauthorized: false })
+      const { body } = await requestRawHttps(fixture.port, '/probe', {
+        agent,
+        servername: 'a.example.com',
+        headers: { host: 'b.example.com' },
+      })
+      assert.strictEqual(body.toString('utf8'), 'MISDIRECTED-PAGE')
     })
   })
 

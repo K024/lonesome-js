@@ -1,6 +1,8 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
+use bytes::Bytes;
 use pingora::cache::{
   key::HashBinary, CacheKey, CacheMeta, ForcedFreshness, HitHandler, NoCacheReason, RespCacheable,
 };
@@ -15,7 +17,7 @@ use crate::matcher::cel_session_context::ensure_session_cel_context;
 use crate::matcher::cel_session_context::hostname_eq;
 use crate::middlewares::middleware::middleware_internal_error;
 use crate::proxy::cache::{build_cache_key, ProxyCacheHandler};
-use crate::proxy::ctx::ProxyCtx;
+use crate::proxy::ctx::{ProxyCtx, ResponseBodyOverride};
 use crate::proxy::response::write_response;
 use crate::route::{Route, SharedRouteTable};
 use crate::server::error_page_store::ErrorPageStore;
@@ -268,6 +270,32 @@ impl ProxyHttp for LonesomeProxy {
     }
 
     Ok(())
+  }
+
+  fn upstream_response_body_filter(
+    &self,
+    _session: &mut Session,
+    body: &mut Option<Bytes>,
+    _end_of_stream: bool,
+    ctx: &mut Self::CTX,
+  ) -> Result<Option<Duration>> {
+    // A middleware that takes over the upstream response (e.g.
+    // `rewrite_error_page`) records the replacement on the ctx; the swap is
+    // applied here in the proxy layer rather than by each middleware, so the
+    // override semantics stay centralized.
+    if let Some(body_override) = &mut ctx.response_body_override {
+      match body_override {
+        ResponseBodyOverride::Replace(replacement) => {
+          *body = Some(std::mem::take(replacement));
+          *body_override = ResponseBodyOverride::DropRemaining;
+        }
+        ResponseBodyOverride::DropRemaining => {
+          *body = None;
+        }
+      }
+    }
+
+    Ok(None)
   }
 
   async fn response_filter(

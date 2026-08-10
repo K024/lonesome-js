@@ -1,6 +1,6 @@
 use std::sync::Arc;
-use std::time::Instant;
 
+use bytes::Bytes;
 use pingora::lb::Extensions;
 
 use crate::config::SniHostPolicy;
@@ -17,10 +17,23 @@ pub struct ProxyCtx {
   pub cache_handler: Option<Arc<dyn ProxyCacheHandler>>,
   pub upstream_state: Option<UpstreamState>,
   pub extensions: Extensions,
-  /// Set by the access_log middleware at request start; used to compute latency.
-  pub access_log_start: Option<Instant>,
   pub sni_host_policy: SniHostPolicy,
   pub error_pages: Arc<ErrorPageStore>,
+  /// Set by a middleware that takes over the upstream response body (e.g. the
+  /// `rewrite_error_page` middleware). The swap is applied centrally by
+  /// `LonesomeProxy::upstream_response_body_filter`: the first upstream body
+  /// chunk is replaced with the replacement, the remaining chunks are dropped.
+  pub response_body_override: Option<ResponseBodyOverride>,
+}
+
+/// How a middleware override of the upstream response body is applied by the
+/// upstream response body filter. Mirrors pingap's `FullyReplaced` plugin
+/// result: the middleware fully owns the body once it takes over.
+pub enum ResponseBodyOverride {
+  /// The first upstream body chunk is replaced with this body.
+  Replace(Bytes),
+  /// The replacement was already emitted; remaining upstream chunks are dropped.
+  DropRemaining,
 }
 
 impl ProxyCtx {
@@ -32,9 +45,9 @@ impl ProxyCtx {
       cache_handler: None,
       upstream_state: None,
       extensions: Extensions::new(),
-      access_log_start: None,
       sni_host_policy,
       error_pages,
+      response_body_override: None,
     }
   }
 
@@ -45,7 +58,7 @@ impl ProxyCtx {
     self.cache_handler = None;
     self.upstream_state = None;
     self.extensions.clear();
-    self.access_log_start = None;
+    self.response_body_override = None;
   }
 
   pub fn set_route(&mut self, route: Arc<Route>) {

@@ -1,5 +1,6 @@
 use bytes::Bytes;
 use cel::Value;
+use http::header::{HeaderName, HeaderValue};
 use pingora::http::ResponseHeader;
 use pingora::proxy::Session;
 use pingora::Result;
@@ -8,6 +9,36 @@ use crate::matcher::cel_session_context::{ensure_context, ensure_session_cel_con
 use crate::middlewares::middleware::middleware_internal_error;
 use crate::proxy::ctx::ProxyCtx;
 use crate::server::error_page_store::ErrorPageEntry;
+
+/// A fully rendered error page: the status to serve, headers, content type and
+/// body. Produced by [`resolve_error_page`] without writing anything.
+pub struct RenderedErrorPage {
+  pub status: u16,
+  pub headers: Vec<(HeaderName, HeaderValue)>,
+  pub content_type: Option<String>,
+  pub body: Bytes,
+}
+
+/// Resolve the error page the store would render for a generated error status,
+/// or `None` when no entry applies (callers then serve their default).
+pub fn resolve_error_page(
+  proxy_ctx: &mut ProxyCtx,
+  session: &Session,
+  status: u16,
+) -> Option<RenderedErrorPage> {
+  let entry = lookup_error_page(proxy_ctx, session, status)?;
+  let body = render_error_page_body(proxy_ctx, session, &entry);
+  let content_type = entry
+    .content_type
+    .clone()
+    .unwrap_or_else(|| "text/html; charset=utf-8".to_string());
+  Some(RenderedErrorPage {
+    status: entry.status_override.unwrap_or(status),
+    headers: entry.headers.clone(),
+    content_type: Some(content_type),
+    body,
+  })
+}
 
 /// Write a proxy- or middleware-generated response to the downstream.
 ///
@@ -44,17 +75,12 @@ pub async fn write_response(
         content_type.map(ToOwned::to_owned),
       )
     } else if status >= 400 {
-      if let Some(page) = lookup_error_page(proxy_ctx, session, status) {
-        let body = render_error_page_body(proxy_ctx, session, &page);
-        let ct = page
-          .content_type
-          .clone()
-          .unwrap_or_else(|| "text/html; charset=utf-8".to_string());
+      if let Some(page) = resolve_error_page(proxy_ctx, session, status) {
         (
-          body,
-          page.status_override.unwrap_or(status),
-          page.headers.clone(),
-          Some(ct),
+          page.body,
+          page.status,
+          page.headers,
+          page.content_type,
         )
       } else {
         (

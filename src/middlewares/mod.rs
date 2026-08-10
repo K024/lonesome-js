@@ -15,6 +15,7 @@ pub mod request_headers;
 pub mod respond;
 pub mod response_headers;
 pub mod rewrite;
+pub mod rewrite_error_page;
 pub mod rewrite_method;
 pub mod set_variable;
 

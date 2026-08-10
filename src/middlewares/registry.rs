@@ -16,6 +16,7 @@ use crate::middlewares::request_headers::{RequestHeadersConfig, RequestHeadersMi
 use crate::middlewares::respond::{RespondConfig, RespondMiddleware};
 use crate::middlewares::response_headers::{ResponseHeadersConfig, ResponseHeadersMiddleware};
 use crate::middlewares::rewrite::{RewriteConfig, RewriteMiddleware};
+use crate::middlewares::rewrite_error_page::{RewriteErrorPageConfig, RewriteErrorPageMiddleware};
 use crate::middlewares::rewrite_method::{RewriteMethodConfig, RewriteMethodMiddleware};
 use crate::middlewares::set_variable::{SetVariableConfig, SetVariableMiddleware};
 use crate::middlewares::Middleware;
@@ -38,6 +39,7 @@ pub enum MiddlewareType {
   Respond(RespondConfig),
   ResponseHeaders(ResponseHeadersConfig),
   Rewrite(RewriteConfig),
+  RewriteErrorPage(RewriteErrorPageConfig),
   RewriteMethod(RewriteMethodConfig),
   SetVariable(SetVariableConfig),
 }
@@ -65,6 +67,9 @@ pub fn build_middleware(cfg: &MiddlewareConfig) -> Result<Box<dyn Middleware>, S
       Ok(Box::new(ResponseHeadersMiddleware::from_config(v.clone())?))
     }
     MiddlewareType::Rewrite(v) => Ok(Box::new(RewriteMiddleware::from_config(v.clone())?)),
+    MiddlewareType::RewriteErrorPage(v) => {
+      Ok(Box::new(RewriteErrorPageMiddleware::from_config(v.clone())?))
+    }
     MiddlewareType::RewriteMethod(v) => {
       Ok(Box::new(RewriteMethodMiddleware::from_config(v.clone())?))
     }

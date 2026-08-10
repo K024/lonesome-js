@@ -40,6 +40,7 @@ See [../cel.md](../cel.md) for available CEL functions and examples.
 - [respond](./respond.md)
 - [response_headers](./response_headers.md)
 - [rewrite](./rewrite.md)
+- [rewrite_error_page](./rewrite_error_page.md)
 - [rewrite_method](./rewrite_method.md)
 - [set_variable](./set_variable.md)
 

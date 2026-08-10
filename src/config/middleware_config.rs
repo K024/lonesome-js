@@ -23,6 +23,7 @@ impl MiddlewareConfig {
       MiddlewareType::Respond(cfg) => cfg.validate(),
       MiddlewareType::ResponseHeaders(cfg) => cfg.validate(),
       MiddlewareType::Rewrite(cfg) => cfg.validate(),
+      MiddlewareType::RewriteErrorPage(cfg) => cfg.validate(),
       MiddlewareType::RewriteMethod(cfg) => cfg.validate(),
       MiddlewareType::SetVariable(cfg) => cfg.validate(),
     }

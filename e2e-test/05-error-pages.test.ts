@@ -285,3 +285,195 @@ describe('error pages: dynamic content via matcher context', () => {
     assert.strictEqual(await other.text(), 'GENERIC-NOT-FOUND')
   })
 })
+
+describe('upstream 5xx responses', () => {
+  before(() => {
+    upstream.setHandler((_req, res) => {
+      res.statusCode = 503
+      res.setHeader('content-type', 'text/plain')
+      res.end('upstream-error-body')
+    })
+  })
+  after(() => upstream.resetHandler())
+
+  it('forwards an upstream 5xx verbatim even when a page exists for that status', async () => {
+    server.updateErrorPage({ id: 'u503', status: 503, body: 'PAGE-503' })
+    const id = nextRouteId('errp-upstream-503')
+    cleanup.push(withRoute(server, {
+      id,
+      matcher: { rule: "PathPrefix('/upstream/503')", priority: 50 },
+      middlewares: [],
+      upstreams: tcpUpstream(upstream.port),
+    }))
+
+    const res = await proxyFetch(port, '/upstream/503')
+    assert.strictEqual(res.status, 503)
+    assert.strictEqual(await res.text(), 'upstream-error-body')
+  })
+})
+
+describe('rewrite_error_page middleware', () => {
+  before(() => {
+    // distinct upstream status per path so tests never collide in the shared store
+    upstream.setHandler((req, res) => {
+      const p = req.url ?? ''
+      let status = 503
+      for (const s of [504, 505, 506, 507, 508]) {
+        if (p.startsWith(`/rewrite/${s}`)) {
+          status = s
+          break
+        }
+      }
+      res.statusCode = status
+      res.setHeader('content-type', 'text/plain')
+      if (p.startsWith('/rewrite/505')) {
+        res.end() // error response with NO body
+      } else {
+        res.end(`upstream-${status}`)
+      }
+    })
+  })
+  after(() => upstream.resetHandler())
+
+  it('replaces an upstream 5xx with the rendered error page', async () => {
+    server.updateErrorPage({ id: 'rw504', status: 504, body: 'REWRITTEN-PAGE' })
+    const id = nextRouteId('errp-rw')
+    cleanup.push(withRoute(server, {
+      id,
+      matcher: { rule: "PathPrefix('/rewrite/504')", priority: 50 },
+      middlewares: [{ type: 'rewrite_error_page', config: {} }],
+      upstreams: tcpUpstream(upstream.port),
+    }))
+
+    const res = await proxyFetch(port, '/rewrite/504')
+    assert.strictEqual(res.status, 504)
+    assert.strictEqual(await res.text(), 'REWRITTEN-PAGE')
+  })
+
+  it('intercepts only the statuses in the spec', async () => {
+    server.updateErrorPage({ id: 'rw505', status: 505, body: 'PAGE-505' })
+    const id = nextRouteId('errp-rw-spec')
+    cleanup.push(withRoute(server, {
+      id,
+      matcher: { rule: "PathPrefix('/rewrite/505')", priority: 50 },
+      middlewares: [{ type: 'rewrite_error_page', config: { status: '502' } }],
+      upstreams: tcpUpstream(upstream.port),
+    }))
+
+    // upstream returns 505, middleware only intercepts 502 -> passthrough
+    const res = await proxyFetch(port, '/rewrite/505')
+    assert.strictEqual(res.status, 505)
+    assert.strictEqual(await res.text(), '')
+  })
+
+  it('does not replace a body-less upstream error (passed through unchanged)', async () => {
+    server.updateErrorPage({ id: 'rw505nb', status: 505, priority: 100, body: 'NO-BODY-PAGE' })
+    const id = nextRouteId('errp-rw-nobody')
+    cleanup.push(withRoute(server, {
+      id,
+      matcher: { rule: "PathPrefix('/rewrite/505')", priority: 50 },
+      middlewares: [{ type: 'rewrite_error_page', config: {} }],
+      upstreams: tcpUpstream(upstream.port),
+    }))
+
+    // upstream returns 505 with an empty body: pingora never calls the body
+    // filter, so the page cannot be injected; the empty upstream error is
+    // passed through unchanged instead of corrupting the framing.
+    const res = await proxyFetch(port, '/rewrite/505')
+    assert.strictEqual(res.status, 505)
+    assert.strictEqual(await res.text(), '')
+  })
+
+  it('is gated by the CEL rule', async () => {
+    server.updateErrorPage({ id: 'rw506', status: 506, body: 'RULE-PAGE' })
+    const id = nextRouteId('errp-rw-rule')
+    cleanup.push(withRoute(server, {
+      id,
+      matcher: { rule: "PathPrefix('/rewrite/506')", priority: 50 },
+      middlewares: [{
+        type: 'rewrite_error_page',
+        config: { rule: "PathPrefix('/rewrite/506/hit')" },
+      }],
+      upstreams: tcpUpstream(upstream.port),
+    }))
+
+    const hit = await proxyFetch(port, '/rewrite/506/hit')
+    assert.strictEqual(hit.status, 506)
+    assert.strictEqual(await hit.text(), 'RULE-PAGE')
+
+    const miss = await proxyFetch(port, '/rewrite/506/miss')
+    assert.strictEqual(miss.status, 506)
+    assert.strictEqual(await miss.text(), 'upstream-506')
+  })
+
+  it('passes through when the store has no matching page', async () => {
+    const id = nextRouteId('errp-rw-nopage')
+    cleanup.push(withRoute(server, {
+      id,
+      matcher: { rule: "PathPrefix('/rewrite/507')", priority: 50 },
+      middlewares: [{ type: 'rewrite_error_page', config: {} }],
+      upstreams: tcpUpstream(upstream.port),
+    }))
+
+    const res = await proxyFetch(port, '/rewrite/507')
+    assert.strictEqual(res.status, 507)
+    assert.strictEqual(await res.text(), 'upstream-507')
+  })
+
+  it('honors the page status_override and headers', async () => {
+    server.updateErrorPage({
+      id: 'rw508',
+      status: 508,
+      statusOverride: 200,
+      headers: { 'X-Rewritten': 'yes' },
+      body: 'OVERRIDDEN-PAGE',
+    })
+    const id = nextRouteId('errp-rw-ovr')
+    cleanup.push(withRoute(server, {
+      id,
+      matcher: { rule: "PathPrefix('/rewrite/508')", priority: 50 },
+      middlewares: [{ type: 'rewrite_error_page', config: {} }],
+      upstreams: tcpUpstream(upstream.port),
+    }))
+
+    const res = await proxyFetch(port, '/rewrite/508')
+    assert.strictEqual(res.status, 200)
+    assert.strictEqual(res.headers.get('x-rewritten'), 'yes')
+    assert.strictEqual(await res.text(), 'OVERRIDDEN-PAGE')
+  })
+})
+
+describe('error pages: connect failure', () => {
+  it('renders the page for a read timeout after a successful connect (502)', async () => {
+    server.updateErrorPage({ id: 'rt502', status: 502, priority: 100, body: 'TIMEOUT-PAGE' })
+
+    // a blackhole upstream: accepts the connection but never responds
+    const net = await import('node:net')
+    const blackhole = net.createServer(() => {})
+    await new Promise<void>((resolve) => blackhole.listen(0, '127.0.0.1', resolve))
+    const blackholePort = (blackhole.address() as { port: number }).port
+
+    const id = nextRouteId('errp-rt')
+    cleanup.push(withRoute(server, {
+      id,
+      matcher: { rule: "PathPrefix('/read-timeout')", priority: 50 },
+      middlewares: [],
+      upstreams: [{
+        kind: 'tcp',
+        address: `127.0.0.1:${blackholePort}`,
+        tls: false,
+        sni: '',
+        weight: 1,
+        readTimeoutMs: 300,
+      }],
+    }))
+
+    try {
+      const res = await proxyFetch(port, '/read-timeout')
+      assert.strictEqual(res.status, 502)
+      assert.strictEqual(await res.text(), 'TIMEOUT-PAGE')
+    } finally {
+      blackhole.close()
+    }
+  })
+})
