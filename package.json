@@ -1,6 +1,6 @@
 {
   "name": "lonesome-js",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "type": "module",
   "main": "dist/index.js",
   "license": "MIT",
@@ -48,7 +48,8 @@
     "bench": "tsx bench/index.ts run",
     "version": "napi version",
     "lint": "tsc -b --noEmit",
-    "test": "cargo test && tsx --test 'e2e-test/**/*.test.ts'"
+    "test:e2e": "tsx --test 'e2e-test/**/*.test.ts'",
+    "test": "cargo test && npm run test:e2e"
   },
   "devDependencies": {
     "@napi-rs/cli": "^3.8.3",
