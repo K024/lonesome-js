@@ -1,0 +1,9 @@
+# Lazy function: activated by the first matching request via interceptor.
+
+matcher:
+  rule: "PathPrefix('/slow')"
+  priority: 40
+
+replicas: 1
+lazy: true
+timeoutMs: 5000

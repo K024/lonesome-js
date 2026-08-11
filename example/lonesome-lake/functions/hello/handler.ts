@@ -1,22 +1,21 @@
-/**
- * Example handler for the api-worker.
- * Default export must be: (req: Request) => Response | Promise<Response>
- */
+import { join } from 'jsr:@std/path@1'
+
 export default function handler(req: Request): Response {
   const url = new URL(req.url)
+  const name = url.searchParams.get('name') ?? 'world'
   return new Response(
     JSON.stringify({
-      worker: 'api-worker',
+      greeting: join('hi', name) + '!',
+      role: Deno.env.get('GREETING'),
       path: url.pathname,
-      method: req.method,
       query: Object.fromEntries(url.searchParams),
-      timestamp: new Date().toISOString(),
+      worker: 'hello',
     }),
     {
       status: 200,
       headers: {
         'content-type': 'application/json',
-        'x-worker': 'api-worker',
+        'x-fn': 'hello',
       },
     },
   )

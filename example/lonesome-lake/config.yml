@@ -1,0 +1,21 @@
+# Global runtime config — paths resolved relative to the launch directory (cwd).
+# If this file is absent, the runtime generates a default one on first boot.
+
+listen: "127.0.0.1:18080"
+threads: 1
+workStealing: false
+
+workerTransport:
+  kind: unix
+  dir: "./data/sockets"
+  prefix: "fn-"
+
+loadBalancer:
+  algorithm: round_robin
+
+functionsDir: "./functions"
+
+admin:
+  listen: "127.0.0.1:19090"
+  staticDir: "./static"
+  token: ""

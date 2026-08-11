@@ -1,0 +1,8 @@
+node_modules
+dist
+static
+data
+.git
+.agents
+*.log
+ui/node_modules

@@ -1,0 +1,13 @@
+{
+  "minimumDependencyAge": 0,
+  "tasks": {
+    "build-ui": "cd ui && npm i && npm run build",
+    "start": "deno run --unstable-worker-options --allow-read=. --allow-write=. --allow-net --allow-env --allow-import --allow-ffi server/main.ts",
+    "check": "deno check --unstable-worker-options server functions",
+    "fmt": "deno fmt server functions ui/src"
+  },
+  "fmt": {
+    "singleQuote": true,
+    "semiColons": false
+  }
+}

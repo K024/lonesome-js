@@ -1,0 +1,15 @@
+# Function config — resolved relative to this function's directory.
+# Only matcher is required; handler defaults to handler.ts/handler.js.
+
+matcher:
+  rule: "PathPrefix('/hello')"
+  priority: 50
+
+permissions:
+  net: true
+
+env:
+  GREETING: 'hello from the lake'
+
+replicas: 1
+lazy: false

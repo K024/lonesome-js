@@ -81,7 +81,7 @@ server.addOrUpdate({
 ## Runtime Compatibility
 
 - Primary target: Node.js via the npm package.
-- Deno can consume the package through `npm:lonesome-js` for local/server use cases that allow npm/native bindings. See the example app: [example/deno-app](./example/deno-app).
+- Deno can consume the package through `npm:lonesome-js` for local/server use cases that allow npm/native bindings. See the example app: [example/lonesome-lake](./example/lonesome-lake).
 
 ## Documentation
 
